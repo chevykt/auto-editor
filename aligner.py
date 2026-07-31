@@ -65,3 +65,24 @@ def suppress_overlaps(cands: list[Candidate]) -> list[Candidate]:
             continue
         kept.append(c)
     return sorted(kept, key=lambda c: c.start_idx)
+
+
+def resolve_retakes(cands: list[Candidate],
+                    cfg: EditorConfig) -> tuple[Candidate, list[Candidate]]:
+    """Pick the winning attempt at a line; the rest are losing retakes.
+
+    "latest" rounds scores to 3dp before comparing, so two attempts that are
+    functionally equally good resolve toward the later one - the take the
+    speaker actually settled on. "score" keeps raw score and prefers the
+    earlier attempt on an exact tie.
+    """
+    if not cands:
+        raise ValueError("resolve_retakes requires at least one candidate")
+
+    if cfg.tiebreak == "latest":
+        winner = max(cands, key=lambda c: (round(c.score, 3), c.start_idx))
+    else:
+        winner = max(cands, key=lambda c: (c.score, -c.start_idx))
+
+    losers = [c for c in cands if c is not winner]
+    return winner, losers
