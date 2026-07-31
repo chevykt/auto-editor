@@ -349,6 +349,7 @@ class EditorConfig:
     lookahead_s: float = 30.0
     window_tolerance: float = 0.4   # window sizes searched: wc*(1±tolerance)
     tiebreak: str = "latest"        # "latest" | "score"
+    retake_lookahead_lines: int = 5  # how far ahead to check for a rival claim
 
     # Silence
     silence_ms: int = 600
@@ -741,6 +742,18 @@ def find_candidates(words: list[Word], lo: int, hi: int, line_text: str,
 
     Window sizes range over the line's word count +/- cfg.window_tolerance,
     since a spoken take rarely has exactly the scripted word count.
+
+    The primary score (token_sort_ratio) is order-insensitive by design, so a
+    paraphrase that reorders clauses still matches. That insensitivity has a
+    side effect: when a line is retaken with only a word or two changed, a
+    window straddling the boundary between the rejected attempt's tail and
+    the new attempt's head can contain the exact same bag of words as the
+    true phrase and score an identical tie ("button click the blue" vs.
+    "click the blue button" - same four words, both 100.0). An order-sensitive
+    nudge is folded in at a scale far below any threshold or rounding
+    boundary, purely to break that tie toward the window that preserves word
+    order. It is exactly zero for a true match (order-ratio 1.0), so an exact
+    match still scores exactly 1.0.
     """
     target = normalize(line_text)
     wc = len(line_text.split())
@@ -753,7 +766,10 @@ def find_candidates(words: list[Word], lo: int, hi: int, line_text: str,
     out: list[Candidate] = []
     for size in range(smallest, largest + 1):
         for i in range(lo, hi - size + 1):
-            score = fuzz.token_sort_ratio(target, _window_text(words, i, i + size)) / 100.0
+            window = _window_text(words, i, i + size)
+            primary = fuzz.token_sort_ratio(target, window) / 100.0
+            order = fuzz.ratio(target, window) / 100.0
+            score = primary - (1.0 - order) * 1e-6
             if score >= cfg.threshold:
                 out.append(Candidate(score, i, i + size))
     return out
@@ -1001,6 +1017,39 @@ def _word_index_after(words: list[Word], t: float) -> int:
     return len(words)
 
 
+def _score_line_against(words: list[Word], cand: Candidate, text: str) -> float:
+    return fuzz.token_sort_ratio(
+        normalize(text), _window_text(words, cand.start_idx, cand.end_idx)) / 100.0
+
+
+def _drop_candidates_owed_to_later_lines(
+        words: list[Word], cands: list[Candidate], line: ScriptLine,
+        later: list[ScriptLine], cfg: EditorConfig) -> list[Candidate]:
+    """Stop a line from swallowing an occurrence a later line has a claim to.
+
+    Two identical script lines produce two occurrences in the recording. Without
+    this, line N sees both, treats them as a retake of itself, keeps the later
+    one, and leaves line N+1 with nothing. A candidate is a genuine retake only
+    if no upcoming line matches it at least as well.
+
+    The first candidate is always kept - this line has to match something.
+    """
+    if len(cands) < 2 or not later:
+        return cands
+
+    horizon = later[:cfg.retake_lookahead_lines]
+    kept = [cands[0]]
+    for cand in cands[1:]:
+        own = _score_line_against(words, cand, line.text)
+        claimed = any(
+            _score_line_against(words, cand, other.text) >= own
+            and _score_line_against(words, cand, other.text) >= cfg.threshold
+            for other in horizon)
+        if not claimed:
+            kept.append(cand)
+    return kept
+
+
 def align_script(words: list[Word], lines: list[ScriptLine],
                  cfg: EditorConfig) -> tuple[list[LineMatch], list[CutSpan]]:
     """Match every script line, in order, against the transcript.
@@ -1020,7 +1069,7 @@ def align_script(words: list[Word], lines: list[ScriptLine],
     spw = mean_seconds_per_word(words)
     cursor = 0
 
-    for line in lines:
+    for pos, line in enumerate(lines):
         lookahead = max(cfg.lookahead_s, 3.0 * line.word_count * spw)
         region_end = len(words)
         if cursor < len(words):
@@ -1040,6 +1089,9 @@ def align_script(words: list[Word], lines: list[ScriptLine],
             matches.append(LineMatch(line.index, None, 0.0, None,
                                      MatchStatus.MISS, scoped=False))
             continue
+
+        cands = _drop_candidates_owed_to_later_lines(
+            words, cands, line, lines[pos + 1:], cfg)
 
         winner, losers = resolve_retakes(cands, cfg)
 
