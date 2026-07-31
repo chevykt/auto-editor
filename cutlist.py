@@ -51,3 +51,49 @@ def apply_padding(cuts: list[CutSpan], cfg: EditorConfig) -> list[CutSpan]:
         out.append(CutSpan(round(start, 6), round(end, 6),
                            set(c.reasons), c.detail))
     return out
+
+
+def keep_segments(cuts: list[CutSpan], duration: float) -> list[Span]:
+    """The complement of the cut list: everything that survives, in order."""
+    segs: list[Span] = []
+    t = 0.0
+    for c in sorted(cuts, key=lambda c: c.start):
+        if c.start > t:
+            segs.append(Span(round(t, 6), round(c.start, 6)))
+        t = max(t, c.end)
+    if t < duration:
+        segs.append(Span(round(t, 6), round(duration, 6)))
+    return segs
+
+
+def _absorb_slivers(cuts: list[CutSpan], duration: float,
+                    cfg: EditorConfig) -> list[CutSpan]:
+    """Delete surviving segments too short to be worth keeping.
+
+    Single pass over the segment list, so absorbing one sliver can never
+    trigger a chain that swallows a long neighbouring segment.
+    """
+    floor = cfg.min_segment_s
+    if floor <= 0 or not cuts:
+        return cuts
+
+    extra: list[CutSpan] = []
+    for seg in keep_segments(cuts, duration):
+        # only interior slivers - never trim the very start or end of the video
+        if seg.duration < floor and seg.start > 0.0 and seg.end < duration:
+            extra.append(CutSpan(seg.start, seg.end, set(), "sliver absorbed"))
+
+    return merge_spans(cuts + extra) if extra else cuts
+
+
+def build_cutlist(cuts: list[CutSpan], duration: float,
+                  cfg: EditorConfig) -> list[CutSpan]:
+    """Merge, pad, then absorb slivers. This order matters.
+
+    Merging first means padding is applied to final boundaries rather than to
+    interior seams that are about to disappear. Sliver absorption runs last,
+    on the geometry the renderer will actually see.
+    """
+    merged = merge_spans(cuts)
+    padded = apply_padding(merged, cfg)
+    return _absorb_slivers(padded, duration, cfg)
