@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Media and derived artifacts
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.transcript.json
+*.report.json
+*.report.md
