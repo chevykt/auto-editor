@@ -1425,8 +1425,12 @@ def test_phrase_longer_than_cap_is_not_cut():
     cfg = EditorConfig(max_disfluency_words=2)
     ws = words("one two three one two three")
     cuts = detect_duplicate_phrases(ws, 0, len(ws), cfg)
-    # only a 2-gram may be cut, never the full 3-word clause
-    assert all(c.end - c.start <= ws[2].start for c in cuts)
+    # the cap bounds the PHRASE that may be matched, not the span removed:
+    # the removed span also covers the gap before the clean continuation.
+    # So the 3-word clause must never be matched as a unit.
+    assert cuts
+    assert all("one two three" not in c.detail for c in cuts)
+    assert "one two" in cuts[0].detail
 
 
 def test_single_word_repeat_is_left_to_the_repeat_detector():
