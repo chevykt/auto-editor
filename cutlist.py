@@ -29,3 +29,25 @@ def merge_spans(cuts: list[CutSpan]) -> list[CutSpan]:
         else:
             out.append(CutSpan(c.start, c.end, set(c.reasons), c.detail))
     return out
+
+
+def apply_padding(cuts: list[CutSpan], cfg: EditorConfig) -> list[CutSpan]:
+    """Pull every cut boundary inward so the cut lands inside the gap.
+
+    Pulling inward makes the removed span smaller, never larger, so a cut
+    cannot clip a breath or a plosive on either side. Spans too short to
+    absorb the padding collapse to nothing and are dropped rather than
+    inverting into a negative duration.
+    """
+    pad = cfg.padding_s
+    if pad <= 0:
+        return [CutSpan(c.start, c.end, set(c.reasons), c.detail) for c in cuts]
+
+    out: list[CutSpan] = []
+    for c in cuts:
+        start, end = c.start + pad, c.end - pad
+        if end - start <= 1e-9:
+            continue
+        out.append(CutSpan(round(start, 6), round(end, 6),
+                           set(c.reasons), c.detail))
+    return out
