@@ -220,15 +220,69 @@ def words(text: str, start: float = 0.0, dur: float = 0.3,
     return out
 ```
 
-- [ ] **Step 7: Run test to verify it passes**
+- [ ] **Step 7: Create `pytest.ini`**
 
-Run: `python -m pytest tests/test_models.py -v`
-Expected: 5 passed
+Every later test file does `from conftest import words`. Because `tests/` is a package (it has `__init__.py`), pytest resolves the fixture module as `tests.conftest`, and the bare import fails. Putting both the project root and `tests/` on `pythonpath` fixes it for the whole suite.
 
-- [ ] **Step 8: Commit**
+```ini
+[pytest]
+testpaths = tests
+# rootdir makes `import models` work; tests/ makes `from conftest import words`
+# work even though tests/ is a package.
+pythonpath = . tests
+markers =
+    smoke: end-to-end tests requiring ffmpeg and real media (slow)
+addopts = -m "not smoke"
+```
+
+- [ ] **Step 8: Write a test guarding the import contract**
+
+Create `tests/test_importpath.py`:
+
+```python
+"""Guards the test-import contract the whole suite depends on.
+
+Every other test file does `from conftest import words`. That only works
+because pytest.ini puts both the project root and tests/ on pythonpath.
+If this file fails, no other test file can import its fixtures.
+"""
+from conftest import words
+from models import Word
+
+
+def test_conftest_is_importable_as_a_top_level_module():
+    assert words("hello world")
+
+
+def test_words_builds_contiguous_timestamps():
+    ws = words("a b c", dur=0.3)
+    assert [(w.start, w.end) for w in ws] == [(0.0, 0.3), (0.3, 0.6), (0.6, 0.9)]
+
+
+def test_words_applies_gaps_after_each_token():
+    ws = words("a b c", dur=0.3, gaps=[0.5, 0.0])
+    assert ws[1].start == 0.8
+    assert ws[2].start == 1.1
+
+
+def test_words_gaps_shorter_than_token_list_are_padded():
+    ws = words("a b c", dur=0.3, gaps=[0.5])
+    assert ws[2].start == 1.1
+
+
+def test_words_returns_model_instances():
+    assert all(isinstance(w, Word) for w in words("a b"))
+```
+
+- [ ] **Step 9: Run tests to verify they pass**
+
+Run: `python -m pytest tests/ -v`
+Expected: 10 passed
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add requirements.txt models.py tests/
+git add requirements.txt models.py pytest.ini tests/
 git commit -m "feat: add shared data model and test fixture helper"
 ```
 
@@ -2982,17 +3036,12 @@ def test_render_survives_a_graph_past_the_windows_arg_limit(clip, tmp_path):
     assert out.exists()
 ```
 
-- [ ] **Step 2: Register the marker**
+- [ ] **Step 2: Confirm the marker is already registered**
 
-Create `pytest.ini`:
+`pytest.ini` was created in Task 1 and already contains the `smoke` marker and `addopts = -m "not smoke"`. Verify it, do not recreate it:
 
-```ini
-[pytest]
-testpaths = tests
-markers =
-    smoke: end-to-end tests requiring ffmpeg and real media (slow)
-addopts = -m "not smoke"
-```
+Run: `python -c "print(open('pytest.ini').read())"`
+Expected: output contains `smoke:` and `addopts = -m \"not smoke\"`
 
 - [ ] **Step 3: Run the fast suite and confirm smoke tests are excluded**
 
@@ -3007,7 +3056,7 @@ Expected: 3 passed. The third takes ~30s.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/test_smoke_endtoend.py pytest.ini
+git add tests/test_smoke_endtoend.py
 git commit -m "test: add end-to-end smoke tests against generated media"
 ```
 
