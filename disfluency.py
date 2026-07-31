@@ -40,3 +40,31 @@ def detect_immediate_repeats(words: list[Word], lo: int, hi: int,
                 continue
         i += 1
     return cuts
+
+
+def detect_truncated_restarts(words: list[Word], lo: int, hi: int,
+                              cfg: EditorConfig) -> list[CutSpan]:
+    """A cut-off word fragment immediately followed by the full word.
+
+    Requires the fragment to be a literal prefix of the next word, at least
+    cfg.min_fragment_chars long, and the full word to be meaningfully longer.
+    Those guards keep it off legitimate sequences like "in international".
+    """
+    cuts: list[CutSpan] = []
+    for i in range(lo, hi - 1):
+        frag = normalize(words[i].text)
+        full = normalize(words[i + 1].text)
+
+        if len(frag) < cfg.min_fragment_chars:
+            continue
+        if not full.startswith(frag) or full == frag:
+            continue
+        if len(full) - len(frag) < cfg.min_restart_growth:
+            continue
+        if words[i + 1].start - words[i].end > cfg.restart_max_gap_s:
+            continue
+
+        cuts.append(CutSpan(
+            words[i].start, words[i + 1].start, {CutReason.DISFLUENCY},
+            f"truncated restart: {frag!r} -> {full!r}"))
+    return cuts
