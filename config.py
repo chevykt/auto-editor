@@ -12,6 +12,7 @@ class EditorConfig:
     lookahead_s: float = 30.0
     window_tolerance: float = 0.4   # window sizes searched: wc*(1±tolerance)
     tiebreak: str = "latest"        # "latest" | "score"
+    retake_lookahead_lines: int = 5  # how far ahead to check for a rival claim
 
     # Silence
     silence_ms: int = 600
