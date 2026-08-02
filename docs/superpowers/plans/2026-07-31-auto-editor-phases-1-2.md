@@ -220,15 +220,69 @@ def words(text: str, start: float = 0.0, dur: float = 0.3,
     return out
 ```
 
-- [ ] **Step 7: Run test to verify it passes**
+- [ ] **Step 7: Create `pytest.ini`**
 
-Run: `python -m pytest tests/test_models.py -v`
-Expected: 5 passed
+Every later test file does `from conftest import words`. Because `tests/` is a package (it has `__init__.py`), pytest resolves the fixture module as `tests.conftest`, and the bare import fails. Putting both the project root and `tests/` on `pythonpath` fixes it for the whole suite.
 
-- [ ] **Step 8: Commit**
+```ini
+[pytest]
+testpaths = tests
+# rootdir makes `import models` work; tests/ makes `from conftest import words`
+# work even though tests/ is a package.
+pythonpath = . tests
+markers =
+    smoke: end-to-end tests requiring ffmpeg and real media (slow)
+addopts = -m "not smoke"
+```
+
+- [ ] **Step 8: Write a test guarding the import contract**
+
+Create `tests/test_importpath.py`:
+
+```python
+"""Guards the test-import contract the whole suite depends on.
+
+Every other test file does `from conftest import words`. That only works
+because pytest.ini puts both the project root and tests/ on pythonpath.
+If this file fails, no other test file can import its fixtures.
+"""
+from conftest import words
+from models import Word
+
+
+def test_conftest_is_importable_as_a_top_level_module():
+    assert words("hello world")
+
+
+def test_words_builds_contiguous_timestamps():
+    ws = words("a b c", dur=0.3)
+    assert [(w.start, w.end) for w in ws] == [(0.0, 0.3), (0.3, 0.6), (0.6, 0.9)]
+
+
+def test_words_applies_gaps_after_each_token():
+    ws = words("a b c", dur=0.3, gaps=[0.5, 0.0])
+    assert ws[1].start == 0.8
+    assert ws[2].start == 1.1
+
+
+def test_words_gaps_shorter_than_token_list_are_padded():
+    ws = words("a b c", dur=0.3, gaps=[0.5])
+    assert ws[2].start == 1.1
+
+
+def test_words_returns_model_instances():
+    assert all(isinstance(w, Word) for w in words("a b"))
+```
+
+- [ ] **Step 9: Run tests to verify they pass**
+
+Run: `python -m pytest tests/ -v`
+Expected: 10 passed
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add requirements.txt models.py tests/
+git add requirements.txt models.py pytest.ini tests/
 git commit -m "feat: add shared data model and test fixture helper"
 ```
 
@@ -295,6 +349,7 @@ class EditorConfig:
     lookahead_s: float = 30.0
     window_tolerance: float = 0.4   # window sizes searched: wc*(1±tolerance)
     tiebreak: str = "latest"        # "latest" | "score"
+    retake_lookahead_lines: int = 5  # how far ahead to check for a rival claim
 
     # Silence
     silence_ms: int = 600
@@ -687,6 +742,18 @@ def find_candidates(words: list[Word], lo: int, hi: int, line_text: str,
 
     Window sizes range over the line's word count +/- cfg.window_tolerance,
     since a spoken take rarely has exactly the scripted word count.
+
+    The primary score (token_sort_ratio) is order-insensitive by design, so a
+    paraphrase that reorders clauses still matches. That insensitivity has a
+    side effect: when a line is retaken with only a word or two changed, a
+    window straddling the boundary between the rejected attempt's tail and
+    the new attempt's head can contain the exact same bag of words as the
+    true phrase and score an identical tie ("button click the blue" vs.
+    "click the blue button" - same four words, both 100.0). An order-sensitive
+    nudge is folded in at a scale far below any threshold or rounding
+    boundary, purely to break that tie toward the window that preserves word
+    order. It is exactly zero for a true match (order-ratio 1.0), so an exact
+    match still scores exactly 1.0.
     """
     target = normalize(line_text)
     wc = len(line_text.split())
@@ -699,7 +766,10 @@ def find_candidates(words: list[Word], lo: int, hi: int, line_text: str,
     out: list[Candidate] = []
     for size in range(smallest, largest + 1):
         for i in range(lo, hi - size + 1):
-            score = fuzz.token_sort_ratio(target, _window_text(words, i, i + size)) / 100.0
+            window = _window_text(words, i, i + size)
+            primary = fuzz.token_sort_ratio(target, window) / 100.0
+            order = fuzz.ratio(target, window) / 100.0
+            score = primary - (1.0 - order) * 1e-6
             if score >= cfg.threshold:
                 out.append(Candidate(score, i, i + size))
     return out
@@ -947,6 +1017,39 @@ def _word_index_after(words: list[Word], t: float) -> int:
     return len(words)
 
 
+def _score_line_against(words: list[Word], cand: Candidate, text: str) -> float:
+    return fuzz.token_sort_ratio(
+        normalize(text), _window_text(words, cand.start_idx, cand.end_idx)) / 100.0
+
+
+def _drop_candidates_owed_to_later_lines(
+        words: list[Word], cands: list[Candidate], line: ScriptLine,
+        later: list[ScriptLine], cfg: EditorConfig) -> list[Candidate]:
+    """Stop a line from swallowing an occurrence a later line has a claim to.
+
+    Two identical script lines produce two occurrences in the recording. Without
+    this, line N sees both, treats them as a retake of itself, keeps the later
+    one, and leaves line N+1 with nothing. A candidate is a genuine retake only
+    if no upcoming line matches it at least as well.
+
+    The first candidate is always kept - this line has to match something.
+    """
+    if len(cands) < 2 or not later:
+        return cands
+
+    horizon = later[:cfg.retake_lookahead_lines]
+    kept = [cands[0]]
+    for cand in cands[1:]:
+        own = _score_line_against(words, cand, line.text)
+        claimed = any(
+            _score_line_against(words, cand, other.text) >= own
+            and _score_line_against(words, cand, other.text) >= cfg.threshold
+            for other in horizon)
+        if not claimed:
+            kept.append(cand)
+    return kept
+
+
 def align_script(words: list[Word], lines: list[ScriptLine],
                  cfg: EditorConfig) -> tuple[list[LineMatch], list[CutSpan]]:
     """Match every script line, in order, against the transcript.
@@ -966,7 +1069,7 @@ def align_script(words: list[Word], lines: list[ScriptLine],
     spw = mean_seconds_per_word(words)
     cursor = 0
 
-    for line in lines:
+    for pos, line in enumerate(lines):
         lookahead = max(cfg.lookahead_s, 3.0 * line.word_count * spw)
         region_end = len(words)
         if cursor < len(words):
@@ -986,6 +1089,9 @@ def align_script(words: list[Word], lines: list[ScriptLine],
             matches.append(LineMatch(line.index, None, 0.0, None,
                                      MatchStatus.MISS, scoped=False))
             continue
+
+        cands = _drop_candidates_owed_to_later_lines(
+            words, cands, line, lines[pos + 1:], cfg)
 
         winner, losers = resolve_retakes(cands, cfg)
 
@@ -1319,8 +1425,12 @@ def test_phrase_longer_than_cap_is_not_cut():
     cfg = EditorConfig(max_disfluency_words=2)
     ws = words("one two three one two three")
     cuts = detect_duplicate_phrases(ws, 0, len(ws), cfg)
-    # only a 2-gram may be cut, never the full 3-word clause
-    assert all(c.end - c.start <= ws[2].start for c in cuts)
+    # the cap bounds the PHRASE that may be matched, not the span removed:
+    # the removed span also covers the gap before the clean continuation.
+    # So the 3-word clause must never be matched as a unit.
+    assert cuts
+    assert all("one two three" not in c.detail for c in cuts)
+    assert "one two" in cuts[0].detail
 
 
 def test_single_word_repeat_is_left_to_the_repeat_detector():
@@ -2982,17 +3092,12 @@ def test_render_survives_a_graph_past_the_windows_arg_limit(clip, tmp_path):
     assert out.exists()
 ```
 
-- [ ] **Step 2: Register the marker**
+- [ ] **Step 2: Confirm the marker is already registered**
 
-Create `pytest.ini`:
+`pytest.ini` was created in Task 1 and already contains the `smoke` marker and `addopts = -m "not smoke"`. Verify it, do not recreate it:
 
-```ini
-[pytest]
-testpaths = tests
-markers =
-    smoke: end-to-end tests requiring ffmpeg and real media (slow)
-addopts = -m "not smoke"
-```
+Run: `python -c "print(open('pytest.ini').read())"`
+Expected: output contains `smoke:` and `addopts = -m \"not smoke\"`
 
 - [ ] **Step 3: Run the fast suite and confirm smoke tests are excluded**
 
@@ -3007,7 +3112,7 @@ Expected: 3 passed. The third takes ~30s.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/test_smoke_endtoend.py pytest.ini
+git add tests/test_smoke_endtoend.py
 git commit -m "test: add end-to-end smoke tests against generated media"
 ```
 
