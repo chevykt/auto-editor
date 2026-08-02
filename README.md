@@ -58,8 +58,11 @@ If you disagree with a cut, delete it from the JSON report's `segments` list
 and render the approved version directly — no re-transcription:
 
 ```bash
-python edit.py --script script.txt --video raw_recording.mp4 --from-report raw_recording.report.json --out final.mp4
+python edit.py --video raw_recording.mp4 --from-report raw_recording.report.json --out final.mp4
 ```
+
+No `--script` needed there — the cut list is already decided, so the script
+would never be read.
 
 The transcript is cached beside the video as `<name>.transcript.json`, so
 re-running with different thresholds costs no Whisper time. `--no-cache` forces
@@ -101,6 +104,11 @@ The Markdown report has three sections:
 
 `--dry-run` (the default) and `--auto` are mutually exclusive; passing both is
 an error rather than a silent precedence rule.
+
+`--video` is always required. `--script` is required except with
+`--from-report`. `--out` is required whenever something is actually rendered.
+All of these, plus missing input files, are checked before transcription
+starts — a typo shouldn't cost you a full Whisper run to discover.
 
 ## Design notes
 
