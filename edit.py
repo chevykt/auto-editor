@@ -32,7 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Remove dead air, false starts, and stutters from a "
                     "script-matched tutorial recording, keeping ad-libs.")
 
-    p.add_argument("--script", required=True, help="Voiceover script (.txt)")
+    p.add_argument("--script",
+                   help="Voiceover script (.txt). Required unless --from-report")
     p.add_argument("--video", required=True, help="Raw screen recording")
     p.add_argument("--out", help="Rendered output (required with --auto/--from-report)")
 
@@ -89,6 +90,35 @@ def config_from_args(args: argparse.Namespace) -> EditorConfig:
     )
 
 
+def validate_args(args: argparse.Namespace) -> str | None:
+    """Cross-argument rules argparse cannot express. Returns an error, or None.
+
+    Checked before any work starts. Transcribing a 20-minute recording and
+    only then reporting a missing --out would waste several minutes.
+    """
+    if not args.from_report and not args.script:
+        return "--script is required unless rendering with --from-report"
+    if (args.auto or args.from_report) and not args.out:
+        return "--out is required when rendering"
+    return None
+
+
+def missing_inputs(args: argparse.Namespace) -> str | None:
+    """First input file that does not exist, as an error message, or None.
+
+    Checked up front so a typo'd path reports cleanly instead of surfacing a
+    raw traceback part-way through a run.
+    """
+    candidates = [("--video", args.video), ("--from-report", args.from_report)]
+    if not args.from_report:
+        candidates.append(("--script", args.script))
+
+    for label, path in candidates:
+        if path and not Path(path).exists():
+            return f"{label} not found: {path}"
+    return None
+
+
 def report_paths(video: Path, report_path: str | None) -> tuple[Path, Path]:
     """Where the .json / .md report pair goes.
 
@@ -122,15 +152,23 @@ def analyse(words: list[Word], script_text: str, duration: float,
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    problem = validate_args(args)
+    if problem:
+        print(f"error: {problem}", file=sys.stderr)
+        return 2
+
+    missing = missing_inputs(args)
+    if missing:
+        print(f"error: {missing}", file=sys.stderr)
+        return 2
+
     cfg = config_from_args(args)
     video = Path(args.video)
 
     if args.from_report:
         report = load_report(args.from_report)
     else:
-        if not video.exists():
-            print(f"error: video not found: {video}", file=sys.stderr)
-            return 2
         script_text = Path(args.script).read_text(encoding="utf-8")
 
         print(f"Transcribing {video.name} (model={cfg.model})...", file=sys.stderr)
@@ -155,10 +193,6 @@ def main(argv: list[str] | None = None) -> int:
         print("\nReview the report, then re-run with --auto, or render the "
               "approved report with --from-report.", file=sys.stderr)
         return 0
-
-    if not args.out:
-        print("error: --out is required when rendering", file=sys.stderr)
-        return 2
 
     from render import render_video
     render_video(video, Path(args.out), report, cfg)
