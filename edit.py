@@ -89,6 +89,19 @@ def config_from_args(args: argparse.Namespace) -> EditorConfig:
     )
 
 
+def report_paths(video: Path, report_path: str | None) -> tuple[Path, Path]:
+    """Where the .json / .md report pair goes.
+
+    Suffixes are appended by name, never via Path.with_suffix: the default
+    stem "raw.report" already looks like it has a ".report" extension, so
+    with_suffix(".json") would REPLACE it and write "raw.json".
+    """
+    stem = Path(report_path) if report_path \
+        else video.with_name(video.stem + ".report")
+    return (stem.with_name(stem.name + ".json"),
+            stem.with_name(stem.name + ".md"))
+
+
 def analyse(words: list[Word], script_text: str, duration: float,
             cfg: EditorConfig, video: str,
             split_sentences: bool = False) -> dict:
@@ -127,13 +140,12 @@ def main(argv: list[str] | None = None) -> int:
         report = analyse(words, script_text, duration, cfg, str(video),
                          split_sentences=args.split_sentences)
 
-        stem = Path(args.report_path) if args.report_path \
-            else video.with_name(video.stem + ".report")
-        write_json(report, stem.with_suffix(".json"))
-        write_markdown(report, stem.with_suffix(".md"))
+        json_path, md_path = report_paths(video, args.report_path)
+        write_json(report, json_path)
+        write_markdown(report, md_path)
 
         s = report["summary"]
-        print(f"\nReport: {stem.with_suffix('.md')}", file=sys.stderr)
+        print(f"\nReport: {md_path}", file=sys.stderr)
         print(f"  {s['cut_count']} cuts, {s['cut_seconds']:.1f}s removed "
               f"-> {s['output_seconds']:.1f}s output", file=sys.stderr)
         print(f"  {s['misses']} missed lines, {s['reviews']} needing review",
