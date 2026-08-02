@@ -1,8 +1,31 @@
 import pytest
 
+from pathlib import Path
+
 from config import EditorConfig
-from edit import analyse, build_parser, config_from_args
+from edit import analyse, build_parser, config_from_args, report_paths
 from conftest import words
+
+
+def test_default_report_paths_append_rather_than_replace_suffixes():
+    # "raw.report" looks like it already has a ".report" extension, so a
+    # with_suffix(".json") here would silently write "raw.json" instead.
+    j, m = report_paths(Path("/tmp/raw.mp4"), None)
+    assert j.name == "raw.report.json"
+    assert m.name == "raw.report.md"
+
+
+def test_explicit_report_path_is_used_as_a_stem():
+    j, m = report_paths(Path("/tmp/raw.mp4"), "out/review")
+    assert j.name == "review.json"
+    assert m.name == "review.md"
+    assert j.parent == Path("out")
+
+
+def test_report_paths_survive_dots_in_the_video_stem():
+    j, m = report_paths(Path("/tmp/take.2.final.mp4"), None)
+    assert j.name == "take.2.final.report.json"
+    assert m.name == "take.2.final.report.md"
 
 
 def test_analyse_produces_matches_and_cuts():
