@@ -42,6 +42,8 @@ class EditorConfig:
     model: str = "medium"
     language: str | None = None
     use_cache: bool = True
+    device: str = "auto"            # "auto" | "cuda" | "cpu"
+    compute_type: str = "int8"      # only consulted when device is not "auto"
 
     @property
     def silence_s(self) -> float:
