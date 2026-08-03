@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Transcription device. auto tries CUDA, falls back to CPU")
     p.add_argument("--compute-type", default=d.compute_type,
                    help="Only used with an explicit --device")
+    p.add_argument("--verbatim", action="store_true",
+                   help="Bias Whisper toward transcribing stutters and fillers "
+                        "instead of tidying them away. Needed for disfluency "
+                        "detection to have anything to find")
+    p.add_argument("--initial-prompt", default=None,
+                   help="Style prompt for Whisper; overrides --verbatim's built-in")
     p.add_argument("--split-sentences", action="store_true")
     p.add_argument("--no-clean-stutters", action="store_true",
                    help="Disable disfluency detection entirely")
@@ -93,6 +99,8 @@ def config_from_args(args: argparse.Namespace) -> EditorConfig:
         use_cache=not args.no_cache,
         device=args.device,
         compute_type=args.compute_type,
+        verbatim=args.verbatim,
+        initial_prompt=args.initial_prompt,
     )
 
 

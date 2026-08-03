@@ -13,10 +13,12 @@ from pathlib import Path
 
 import pytest
 
+from config import EditorConfig
 from edit import main
 from models import Word
 from report import load_report
-from transcribe import cache_path_for, probe_duration, save_cache
+from transcribe import (cache_path_for, probe_duration, save_cache,
+                        transcription_key)
 
 pytestmark = pytest.mark.smoke
 
@@ -66,7 +68,8 @@ def project(tmp_path: Path) -> tuple[Path, Path]:
 
     script = tmp_path / "script.txt"
     script.write_text(SCRIPT, encoding="utf-8")
-    save_cache(cache_path_for(video), spoken_transcript(), 20.0, "medium")
+    save_cache(cache_path_for(video), spoken_transcript(), 20.0,
+               transcription_key(EditorConfig()))
     return video, script
 
 
