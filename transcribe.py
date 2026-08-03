@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from config import EditorConfig
@@ -62,11 +63,13 @@ def probe_duration(video: str | Path) -> float:
     return float(out.stdout.strip())
 
 
-def _run_whisper(video: Path, cfg: EditorConfig) -> list[Word]:
-    """Load the model and transcribe. Isolated so tests can stub it out."""
-    from faster_whisper import WhisperModel
+def _decode(model, video: Path, cfg: EditorConfig) -> list[Word]:
+    """Drain the segment generator into a flat word list.
 
-    model = WhisperModel(cfg.model, device="auto", compute_type="auto")
+    faster-whisper returns a lazy generator, so any GPU library failure
+    surfaces here during iteration rather than at model construction. That is
+    why the fallback in _run_whisper wraps this call, not just the constructor.
+    """
     segments, _ = model.transcribe(str(video), word_timestamps=True,
                                    language=cfg.language)
     words: list[Word] = []
@@ -76,6 +79,35 @@ def _run_whisper(video: Path, cfg: EditorConfig) -> list[Word]:
             if text:
                 words.append(Word(text, float(w.start), float(w.end)))
     return words
+
+
+def _device_attempts(cfg: EditorConfig) -> list[tuple[str, str]]:
+    """(device, compute_type) pairs to try, in order."""
+    if cfg.device != "auto":
+        return [(cfg.device, cfg.compute_type)]
+    # CUDA is worth trying, but a machine can report a GPU while lacking the
+    # CUDA runtime entirely, so CPU must always be reachable as a fallback.
+    return [("cuda", "float16"), ("cpu", "int8")]
+
+
+def _run_whisper(video: Path, cfg: EditorConfig) -> list[Word]:
+    """Load the model and transcribe. Isolated so tests can stub it out."""
+    from faster_whisper import WhisperModel
+
+    attempts = _device_attempts(cfg)
+    for i, (device, compute_type) in enumerate(attempts):
+        last = i == len(attempts) - 1
+        try:
+            model = WhisperModel(cfg.model, device=device,
+                                 compute_type=compute_type)
+            return _decode(model, video, cfg)
+        except (RuntimeError, ValueError) as exc:
+            if last:
+                raise
+            print(f"  {device} unavailable ({exc}); falling back to "
+                  f"{attempts[i + 1][0]}", file=sys.stderr)
+
+    raise RuntimeError("no transcription device available")
 
 
 def transcribe(video: str | Path,

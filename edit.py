@@ -58,6 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-disfluency-words", type=int, default=d.max_disfluency_words)
     p.add_argument("--model", default=d.model)
     p.add_argument("--language", default=None)
+    p.add_argument("--device", choices=["auto", "cuda", "cpu"], default=d.device,
+                   help="Transcription device. auto tries CUDA, falls back to CPU")
+    p.add_argument("--compute-type", default=d.compute_type,
+                   help="Only used with an explicit --device")
     p.add_argument("--split-sentences", action="store_true")
     p.add_argument("--no-clean-stutters", action="store_true",
                    help="Disable disfluency detection entirely")
@@ -87,6 +91,8 @@ def config_from_args(args: argparse.Namespace) -> EditorConfig:
         model=args.model,
         language=args.language,
         use_cache=not args.no_cache,
+        device=args.device,
+        compute_type=args.compute_type,
     )
 
 
