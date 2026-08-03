@@ -14,6 +14,12 @@ class EditorConfig:
     tiebreak: str = "latest"        # "latest" | "score"
     retake_lookahead_lines: int = 5  # how far ahead to check for a rival claim
 
+    # Mid-line restarts: an abandoned attempt that matches the START of a line
+    partial_retakes: bool = True
+    partial_retake_threshold: float = 0.8
+    partial_retake_max_gap_s: float = 3.0
+    partial_retake_min_words: int = 2
+
     # Silence
     silence_ms: int = 600
 

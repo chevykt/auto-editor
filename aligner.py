@@ -155,6 +155,47 @@ def _drop_candidates_owed_to_later_lines(
     return kept
 
 
+def find_abandoned_prefix(words: list[Word], lo: int, hi: int,
+                          line: ScriptLine, cfg: EditorConfig) -> int | None:
+    """Start index of an abandoned attempt at `line` ending just before `hi`.
+
+    Retake resolution only sees a retake when a line produces two windows that
+    each clear the alignment threshold. A mid-line restart does not: the
+    speaker gets partway in, stops, and starts over, leaving a fragment far
+    too short to score against the whole line. Without this, that fragment
+    falls through to the report as a probable ad-lib - exactly backwards,
+    since it is content the speaker discarded being labelled as content they
+    meant to keep.
+
+    Kept conservative on purpose. The fragment must match the line's opening
+    words in order, must be adjacent to the restart, and the longest qualifying
+    fragment wins. An ad-lib that merely shares vocabulary with the upcoming
+    line will not match a prefix in order.
+    """
+    if not cfg.partial_retakes:
+        return None
+    if hi - lo < cfg.partial_retake_min_words or hi < 1 or hi >= len(words):
+        return None
+    # a long pause means a new thought, not a restart
+    if words[hi].start - words[hi - 1].end > cfg.partial_retake_max_gap_s:
+        return None
+
+    line_words = line.text.split()
+    best: int | None = None
+
+    for start in range(hi - cfg.partial_retake_min_words, lo - 1, -1):
+        size = hi - start
+        if size > len(line_words):
+            break
+        prefix = normalize(" ".join(line_words[:size]))
+        spoken = _window_text(words, start, hi)
+        # order-sensitive: a restart repeats the opening words in sequence
+        if fuzz.ratio(prefix, spoken) / 100.0 >= cfg.partial_retake_threshold:
+            best = start
+
+    return best
+
+
 def align_script(words: list[Word], lines: list[ScriptLine],
                  cfg: EditorConfig) -> tuple[list[LineMatch], list[CutSpan]]:
     """Match every script line, in order, against the transcript.
@@ -206,6 +247,21 @@ def align_script(words: list[Word], lines: list[ScriptLine],
             cuts.append(CutSpan(
                 words[loser.start_idx].start, end, {CutReason.RETAKE_LOSER},
                 f"losing take of line {line.index} (score {loser.score:.2f})"))
+
+        # Only look at ground no losing take already claims: a full retake and
+        # a mid-line restart would otherwise both fire on the same words.
+        search_from = cursor
+        for loser in losers:
+            if loser.end_idx <= winner.start_idx:
+                search_from = max(search_from, loser.end_idx)
+
+        abandoned = find_abandoned_prefix(words, search_from, winner.start_idx,
+                                          line, cfg)
+        if abandoned is not None:
+            cuts.append(CutSpan(
+                words[abandoned].start, words[winner.start_idx].start,
+                {CutReason.RETAKE_LOSER},
+                f"abandoned attempt at line {line.index} (mid-line restart)"))
 
         status = (MatchStatus.REVIEW
                   if winner.score < cfg.threshold + cfg.review_margin
