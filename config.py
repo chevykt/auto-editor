@@ -44,6 +44,8 @@ class EditorConfig:
     use_cache: bool = True
     device: str = "auto"            # "auto" | "cuda" | "cpu"
     compute_type: str = "int8"      # only consulted when device is not "auto"
+    verbatim: bool = False          # bias Whisper toward transcribing disfluencies
+    initial_prompt: str | None = None   # overrides the built-in verbatim prompt
 
     @property
     def silence_s(self) -> float:
