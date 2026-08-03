@@ -1,0 +1,9 @@
+Welcome back. Today I want to show you how to get set up in about two minutes.
+
+Start by opening the dashboard from the top left menu.
+
+From there, head into the configuration panel and find the sync settings.
+
+Turn on automatic sync, then pick how often you want it to run.
+
+Save your changes, and that's it. You're done.
