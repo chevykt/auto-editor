@@ -24,7 +24,12 @@ def _adlib_spans(matches: list[LineMatch], cuts: list[CutSpan],
             claimed.update(range(*m.word_range))
 
     def is_cut(w: Word) -> bool:
-        return any(c.start <= w.start and w.end <= c.end for c in cuts)
+        # Midpoint, not strict containment: cut boundaries are pulled inward by
+        # the padding, so a word the render removes is often not fully enclosed
+        # by the padded span. Strict containment would list it as a surviving
+        # ad-lib when it is actually being cut.
+        midpoint = (w.start + w.end) / 2
+        return any(c.start <= midpoint <= c.end for c in cuts)
 
     out: list[dict] = []
     run: list[Word] = []

@@ -14,7 +14,7 @@ def sample_report():
                   matched_text="click the blue button"),
         LineMatch(1, None, 0.0, None, MatchStatus.MISS),
     ]
-    cuts = [CutSpan(2.0, 2.6, {CutReason.SILENCE}, "gap 0.60s"),
+    cuts = [CutSpan(2.0, 2.3, {CutReason.SILENCE}, "gap 0.30s"),
             CutSpan(3.0, 3.4, {CutReason.DISFLUENCY}, "immediate repeat: 'the'"),
             CutSpan(5.0, 6.0, {CutReason.RETAKE_LOSER}, "losing take of line 0")]
     return build_report(lines, matches, cuts, ws, 20.0, EditorConfig(), "raw.mp4")
@@ -34,7 +34,7 @@ def test_misses_are_called_out():
 def test_silence_is_summarised_not_enumerated():
     md = render_markdown(sample_report())
     # the silence cut's detail should not appear line by line
-    assert "gap 0.60s" not in md
+    assert "gap 0.30s" not in md
     assert "silence" in md.lower()
 
 
