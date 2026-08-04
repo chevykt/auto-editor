@@ -10,6 +10,7 @@ from config import EditorConfig
 from cutlist import build_cutlist
 from disfluency import detect_disfluencies
 from models import Word
+from reorder import reorder_segments
 from report import build_report, load_report, write_json, write_markdown
 from script_parser import parse_script
 from silence import detect_silence
@@ -78,8 +79,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-cache", action="store_true",
                    help="Ignore any cached transcript")
 
-    p.add_argument("--reorder", nargs=0, action=_NotImplementedFlag,
-                   help=argparse.SUPPRESS)
+    p.add_argument("--reorder", action="store_true",
+                   help="Rebuild from matched windows in SCRIPT order, "
+                        "discarding everything unmatched. Loses ad-libs and "
+                        "natural flow; only for lines recorded out of sequence")
+    p.add_argument("--reorder-pad-ms", type=int, default=d.reorder_pad_ms,
+                   help="Outward breathing room on each reordered window")
+
     p.add_argument("--export-xml", nargs=0, action=_NotImplementedFlag,
                    help=argparse.SUPPRESS)
     return p
@@ -106,6 +112,8 @@ def config_from_args(args: argparse.Namespace) -> EditorConfig:
         compute_type=args.compute_type,
         verbatim=args.verbatim,
         initial_prompt=args.initial_prompt,
+        reorder=args.reorder,
+        reorder_pad_ms=args.reorder_pad_ms,
     )
 
 
@@ -161,11 +169,25 @@ def analyse(words: list[Word], script_text: str, duration: float,
     matches, retake_cuts = align_script(words, lines, cfg)
     raw += retake_cuts
 
+    disfluencies: list = []
     for m in matches:
         if m.word_range:
-            raw += detect_disfluencies(words, m.word_range[0], m.word_range[1], cfg)
+            disfluencies += detect_disfluencies(
+                words, m.word_range[0], m.word_range[1], cfg)
+    raw += disfluencies
 
     cuts = build_cutlist(raw, duration, cfg)
+
+    if cfg.reorder:
+        # Reconstructive: keep only matched windows, in script order. Silence
+        # and retake cuts are irrelevant here - anything outside a matched
+        # window is already gone - but disfluencies still sit INSIDE the
+        # windows we are keeping, so those are subtracted from each one.
+        segments = reorder_segments(
+            words, matches, build_cutlist(disfluencies, duration, cfg), cfg)
+        return build_report(lines, matches, cuts, words, duration, cfg, video,
+                            segments=segments, mode="reorder")
+
     return build_report(lines, matches, cuts, words, duration, cfg, video)
 
 

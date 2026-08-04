@@ -81,6 +81,39 @@ The Markdown report has three sections:
   list is the safety net: scan it to confirm no cut ate an intentional ad-lib.
 - **Kept, but not in the script** — probable ad-libs, left in deliberately.
 
+## Reorder mode (`--reorder`)
+
+The opposite approach, and off by default. Instead of removing what it's
+confident about, it keeps **only** what matched a script line and concatenates
+those windows in **script order** rather than the order you spoke them.
+
+```bash
+python edit.py --script script.txt --video raw.mp4 --out final.mp4 --reorder --auto
+```
+
+Use it only when lines were deliberately recorded out of sequence and need
+reassembling. The trade-off is real and unavoidable:
+
+| | Default (subtractive) | `--reorder` |
+|---|---|---|
+| Order | as spoken | as scripted |
+| Ad-libs, asides, extra explanation | **kept** | **discarded** |
+| Natural flow between beats | preserved | lost |
+| Unmatched content | reported, kept | reported, removed |
+
+Measured on a real 80-second recording: the default produced 34.7s and kept a
+13-second ad-lib; `--reorder` produced 21.8s and threw it away. Both are
+correct — they answer different questions.
+
+Disfluencies are still removed from inside the windows it keeps, so a stutter
+in a matched line doesn't survive just because the line did. Missed lines
+contribute nothing and are listed under "Holes in the reassembly", so a gap in
+the script is visible rather than silently yielding a shorter video.
+
+The report says which mode produced it, and in reorder mode the unmatched
+section is headed **"Discarded"** rather than "Kept" — the same content, the
+opposite fate.
+
 ## Tuning
 
 | Flag | Default | What it does |
@@ -99,6 +132,8 @@ The Markdown report has three sections:
 | `--model` | medium | Whisper model size |
 | `--language` | auto | Force a language instead of auto-detecting |
 | `--no-clean-stutters` | off | Turn disfluency detection off entirely |
+| `--reorder` | off | Rebuild in script order, discarding unmatched content |
+| `--reorder-pad-ms` | 60 | Outward breathing room on each reordered window |
 | `--split-sentences` | off | Split the script per sentence instead of per blank line |
 | `--no-cache` | off | Ignore any cached transcript |
 | `--report-path` | `<video>.report` | Stem for the `.json` / `.md` report pair |
@@ -149,9 +184,8 @@ long recordings — exactly the ones this tool exists for.
   script order against a forward-moving cursor. If a line is genuinely spoken
   out of order, it is found by a full-recording fallback and flagged
   `(out of order)` in the report.
-- `--reorder` (rebuild in script order) and `--export-xml` (Premiere timeline)
-  are specced but not built. Both are rejected at the command line rather than
-  silently ignored.
+- `--export-xml` (Premiere timeline) is specced but not built. It is rejected
+  at the command line rather than silently ignored.
 
 ## Tests
 
