@@ -38,6 +38,10 @@ class EditorConfig:
     # side left only 70ms actually removed - two thirds of the stutter stayed
     # in. 30ms still lands the cut inside the gap without clipping a plosive.
     padding_ms: int = 30
+    # Silence cuts are bounded by speech on both sides, so they can afford - and
+    # need - a generous pull-in to protect a breath or a plosive. A disfluency
+    # cut is a short span where that same pull-in would eat what we are removing.
+    silence_padding_ms: int = 75
     min_segment_ms: int = 150
 
     # Render
@@ -64,6 +68,10 @@ class EditorConfig:
     @property
     def padding_s(self) -> float:
         return self.padding_ms / 1000.0
+
+    @property
+    def silence_padding_s(self) -> float:
+        return self.silence_padding_ms / 1000.0
 
     @property
     def min_segment_s(self) -> float:

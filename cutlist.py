@@ -7,7 +7,7 @@ cosmetic: overlapping spans produce negative-duration ffmpeg trims.
 from __future__ import annotations
 
 from config import EditorConfig
-from models import CutSpan, Span
+from models import CutReason, CutSpan, Span
 
 
 def merge_spans(cuts: list[CutSpan]) -> list[CutSpan]:
@@ -31,21 +31,45 @@ def merge_spans(cuts: list[CutSpan]) -> list[CutSpan]:
     return out
 
 
-def apply_padding(cuts: list[CutSpan], cfg: EditorConfig) -> list[CutSpan]:
+def padding_for(reasons: set[CutReason], cfg: EditorConfig) -> float:
+    """How far to pull in a boundary produced by a cut with these reasons.
+
+    Silence earns the generous value; anything else gets the tight one. A
+    mixed span counts as non-silence, because the part that needs protecting
+    from over-trimming is the disfluency.
+    """
+    return cfg.silence_padding_s if reasons == {CutReason.SILENCE} else cfg.padding_s
+
+
+def apply_padding(cuts: list[CutSpan], cfg: EditorConfig,
+                  sources: list[CutSpan] | None = None) -> list[CutSpan]:
     """Pull every cut boundary inward so the cut lands inside the gap.
 
     Pulling inward makes the removed span smaller, never larger, so a cut
     cannot clip a breath or a plosive on either side. Spans too short to
     absorb the padding collapse to nothing and are dropped rather than
     inverting into a negative duration.
+
+    Each boundary is padded by the reason that produced it, not by the merged
+    span's combined reasons. A silence gap that merged with an adjacent
+    stutter has a silence boundary at one end and a disfluency boundary at the
+    other; padding both the same way is wrong at whichever end loses.
+
+    sources: the pre-merge cuts, used to attribute each boundary. Defaults to
+    `cuts` itself, which is correct when nothing has been merged yet.
     """
-    pad = cfg.padding_s
-    if pad <= 0:
-        return [CutSpan(c.start, c.end, set(c.reasons), c.detail) for c in cuts]
+    origins = list(sources) if sources is not None else list(cuts)
+
+    def pad_at(value: float, attr: str) -> float:
+        for origin in origins:
+            if abs(getattr(origin, attr) - value) < 1e-9:
+                return padding_for(origin.reasons, cfg)
+        return cfg.padding_s
 
     out: list[CutSpan] = []
     for c in cuts:
-        start, end = c.start + pad, c.end - pad
+        start = c.start + pad_at(c.start, "start")
+        end = c.end - pad_at(c.end, "end")
         if end - start <= 1e-9:
             continue
         out.append(CutSpan(round(start, 6), round(end, 6),
@@ -95,5 +119,5 @@ def build_cutlist(cuts: list[CutSpan], duration: float,
     on the geometry the renderer will actually see.
     """
     merged = merge_spans(cuts)
-    padded = apply_padding(merged, cfg)
+    padded = apply_padding(merged, cfg, sources=cuts)
     return _absorb_slivers(padded, duration, cfg)
