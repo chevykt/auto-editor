@@ -117,6 +117,33 @@ def test_corrupt_cache_is_treated_as_a_miss(tmp_path):
     assert load_cached(path, key="k1") == (None, None)
 
 
+def test_decode_drops_punctuation_only_tokens(monkeypatch, tmp_path):
+    """Whisper emits standalone punctuation as its own zero-duration token.
+
+    Keeping them puts a non-speech entry between two words, which breaks the
+    adjacency every disfluency detector relies on. Dropping them at the source
+    means no downstream stage has to know about it.
+    """
+    from transcribe import _decode
+
+    class FakeWord:
+        def __init__(self, word, start, end):
+            self.word, self.start, self.end = word, start, end
+
+    class FakeSegment:
+        words = [FakeWord(" config", 15.3, 15.76),
+                 FakeWord("-", 15.76, 15.76),
+                 FakeWord(" configuration", 15.76, 16.36),
+                 FakeWord(" ...", 16.36, 16.36)]
+
+    class FakeModel:
+        def transcribe(self, *a, **k):
+            return [FakeSegment()], None
+
+    out = _decode(FakeModel(), tmp_path / "v.mp4", EditorConfig())
+    assert [w.text for w in out] == ["config", "configuration"]
+
+
 # --- verbatim mode -------------------------------------------------------
 
 def test_no_prompt_by_default():

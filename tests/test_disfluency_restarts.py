@@ -1,6 +1,6 @@
 from config import EditorConfig
 from disfluency import detect_truncated_restarts
-from models import CutReason
+from models import CutReason, Word
 from conftest import words
 
 
@@ -39,3 +39,29 @@ def test_long_pause_between_breaks_the_signal():
 def test_non_prefix_is_ignored():
     ws = words("setup configuration screen")
     assert detect_truncated_restarts(ws, 0, len(ws), EditorConfig()) == []
+
+
+def test_standalone_punctuation_token_does_not_break_adjacency():
+    """Found on a real recording.
+
+    Whisper transcribed a mid-word restart as three tokens - 'config', '-',
+    'configuration' - with the hyphen a separate zero-duration entry. It
+    normalises to nothing, so treating it as a word put a gap between the
+    fragment and the full word and the restart went undetected.
+    """
+    ws = words("the config configuration panel")
+    # splice in a zero-width '-' exactly where Whisper put it
+    ws = ws[:2] + [Word("-", ws[1].end, ws[1].end)] + ws[2:]
+
+    cuts = detect_truncated_restarts(ws, 0, len(ws), EditorConfig())
+    assert len(cuts) == 1
+    assert cuts[0].detail == "truncated restart: 'config' -> 'configuration'"
+    assert cuts[0].start == ws[1].start
+    assert cuts[0].end == ws[3].start
+
+
+def test_punctuation_token_does_not_itself_look_like_a_fragment():
+    ws = words("the config configuration panel")
+    ws = ws[:2] + [Word("...", ws[1].end, ws[1].end)] + ws[2:]
+    cuts = detect_truncated_restarts(ws, 0, len(ws), EditorConfig())
+    assert all("'...'" not in c.detail for c in cuts)

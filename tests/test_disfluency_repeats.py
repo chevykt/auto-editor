@@ -1,6 +1,6 @@
 from config import EditorConfig
 from disfluency import detect_immediate_repeats
-from models import CutReason
+from models import CutReason, Word
 from conftest import words
 
 
@@ -41,6 +41,14 @@ def test_triple_repeat_cuts_both_earlier_copies():
     ws = words("the the the button")
     cuts = detect_immediate_repeats(ws, 0, len(ws), EditorConfig())
     assert len(cuts) == 2
+
+
+def test_standalone_punctuation_token_does_not_break_a_repeat():
+    ws = words("click the the button")
+    ws = ws[:2] + [Word("-", ws[1].end, ws[1].end)] + ws[2:]
+    cuts = detect_immediate_repeats(ws, 0, len(ws), EditorConfig())
+    assert len(cuts) == 1
+    assert cuts[0].detail == "immediate repeat: 'the'"
 
 
 def test_range_is_respected():
