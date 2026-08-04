@@ -5,7 +5,7 @@ def test_defaults_match_spec():
     c = EditorConfig()
     assert c.threshold == 0.75
     assert c.silence_ms == 600
-    assert c.padding_ms == 75
+    assert c.padding_ms == 30
     assert c.model == "medium"
     assert c.clean_stutters is True
     assert c.tiebreak == "latest"

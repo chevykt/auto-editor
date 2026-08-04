@@ -35,6 +35,25 @@ def test_reasons_and_detail_survive_padding():
     assert out[0].detail == "loser"
 
 
+def test_default_padding_leaves_a_usable_cut_on_a_short_stutter():
+    """Why the default is 30ms and not 75ms.
+
+    Measured on a real recording: a duplicated "the" ran 220ms. At 75ms the
+    pull-in took 150ms of that, leaving only 70ms actually removed - two
+    thirds of the stutter survived into the render. Padding sized for silence
+    gaps is disproportionate against a single short word.
+
+    If someone raises this default again, this is the case to re-measure.
+    """
+    stutter = [CutSpan(4.020, 4.240, {CutReason.DISFLUENCY})]
+
+    kept = apply_padding(stutter, EditorConfig())[0]
+    assert kept.duration > 0.15, "default must remove most of a 220ms stutter"
+
+    old = apply_padding(stutter, EditorConfig(padding_ms=75))[0]
+    assert old.duration < 0.08, "75ms left most of the stutter in"
+
+
 def test_applies_to_every_reason_type_alike():
     cuts = [CutSpan(1.0, 3.0, {CutReason.SILENCE}),
             CutSpan(5.0, 7.0, {CutReason.DISFLUENCY}),

@@ -33,7 +33,11 @@ class EditorConfig:
     min_restart_growth: int = 3     # full word must exceed fragment by this many chars
 
     # Cut list
-    padding_ms: int = 75
+    # 30ms, not the 75ms the design spec proposed. Calibrated against a real
+    # recording: a duplicated "the" ran 220ms, and 75ms pulled in from each
+    # side left only 70ms actually removed - two thirds of the stutter stayed
+    # in. 30ms still lands the cut inside the gap without clipping a plosive.
+    padding_ms: int = 30
     min_segment_ms: int = 150
 
     # Render

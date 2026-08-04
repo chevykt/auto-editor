@@ -88,7 +88,7 @@ The Markdown report has three sections:
 | `--threshold` | 0.75 | Fuzzy score a window must hit to count as a line match |
 | `--review-margin` | 0.05 | Band above the threshold flagged as REVIEW rather than OK |
 | `--silence-ms` | 600 | Shortest gap treated as cuttable silence |
-| `--padding-ms` | 75 | How far each cut boundary is pulled inward, so cuts don't clip breaths |
+| `--padding-ms` | 30 | How far each cut boundary is pulled inward, so cuts don't clip breaths |
 | `--min-segment-ms` | 150 | Surviving slivers shorter than this are absorbed |
 | `--crossfade-ms` | 75 | Per-segment audio fade at cut points; 0 disables |
 | `--duplicate-window-s` | 4.0 | Max separation for a repeat to count as a stutter rather than deliberate |
