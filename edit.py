@@ -51,7 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lookahead-s", type=float, default=d.lookahead_s)
     p.add_argument("--tiebreak", choices=["latest", "score"], default=d.tiebreak)
     p.add_argument("--silence-ms", type=int, default=d.silence_ms)
-    p.add_argument("--padding-ms", type=int, default=d.padding_ms)
+    p.add_argument("--padding-ms", type=int, default=d.padding_ms,
+                   help="Pull-in at disfluency and retake cut boundaries")
+    p.add_argument("--silence-padding-ms", type=int, default=d.silence_padding_ms,
+                   help="Pull-in at silence cut boundaries; can afford to be "
+                        "larger since a silence cut is bounded by speech")
     p.add_argument("--min-segment-ms", type=int, default=d.min_segment_ms)
     p.add_argument("--crossfade-ms", type=int, default=d.crossfade_ms)
     p.add_argument("--duplicate-window-s", type=float, default=d.duplicate_window_s)
@@ -89,6 +93,7 @@ def config_from_args(args: argparse.Namespace) -> EditorConfig:
         tiebreak=args.tiebreak,
         silence_ms=args.silence_ms,
         padding_ms=args.padding_ms,
+        silence_padding_ms=args.silence_padding_ms,
         min_segment_ms=args.min_segment_ms,
         crossfade_ms=args.crossfade_ms,
         duplicate_window_s=args.duplicate_window_s,

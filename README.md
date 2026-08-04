@@ -88,7 +88,8 @@ The Markdown report has three sections:
 | `--threshold` | 0.75 | Fuzzy score a window must hit to count as a line match |
 | `--review-margin` | 0.05 | Band above the threshold flagged as REVIEW rather than OK |
 | `--silence-ms` | 600 | Shortest gap treated as cuttable silence |
-| `--padding-ms` | 30 | How far each cut boundary is pulled inward, so cuts don't clip breaths |
+| `--padding-ms` | 30 | Pull-in at disfluency and retake boundaries |
+| `--silence-padding-ms` | 75 | Pull-in at silence boundaries |
 | `--min-segment-ms` | 150 | Surviving slivers shorter than this are absorbed |
 | `--crossfade-ms` | 75 | Per-segment audio fade at cut points; 0 disables |
 | `--duplicate-window-s` | 4.0 | Max separation for a repeat to count as a stutter rather than deliberate |
@@ -120,6 +121,15 @@ Across a few hundred cuts that accumulates into audible audio/video desync.
 Per-segment `afade` suppresses clicks identically while preserving exact
 durations. A smoke test renders 50 cuts with fades on and asserts the audio and
 video stream durations still agree.
+
+**Cut boundaries are padded per reason, not uniformly.** A silence cut is
+bounded by speech on both sides, so pulling in generously protects a breath or
+a plosive. A disfluency cut is a short span where that same pull-in would eat
+most of what you're removing — a duplicated "the" measured 220ms on a real
+recording, and a 75ms pull-in from each side left only 70ms actually removed.
+Each boundary is padded by the reason that produced it, so a silence gap that
+merged with an adjacent stutter gets the generous value at one end and the
+tight value at the other.
 
 **The ffmpeg filter graph goes to a file.** A few hundred cuts produces a
 `filter_complex` string far past the Windows 8191-character command-line limit,
