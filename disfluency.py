@@ -13,6 +13,19 @@ from models import CutReason, CutSpan, Word, normalize
 FILLERS = frozenset({"uh", "um", "er", "ah", "erm", "hmm", "mm"})
 
 
+def _next_speech(words: list[Word], i: int, hi: int) -> int:
+    """Index of the next token carrying actual speech, or hi if there is none.
+
+    Whisper sometimes emits punctuation as its own token - a mid-word restart
+    can arrive as 'config', '-', 'configuration', where the hyphen is a
+    separate zero-duration entry. Normalising leaves it empty, and treating it
+    as a word breaks the adjacency every detector here depends on.
+    """
+    while i < hi and not normalize(words[i].text):
+        i += 1
+    return i
+
+
 def detect_immediate_repeats(words: list[Word], lo: int, hi: int,
                              cfg: EditorConfig) -> list[CutSpan]:
     """The same word twice in a row, optionally with fillers between.
@@ -27,9 +40,9 @@ def detect_immediate_repeats(words: list[Word], lo: int, hi: int,
             i += 1
             continue
 
-        j = i + 1
+        j = _next_speech(words, i + 1, hi)
         while j < hi and normalize(words[j].text) in FILLERS:
-            j += 1
+            j = _next_speech(words, j + 1, hi)
 
         if j < hi and normalize(words[j].text) == first:
             if words[j].start - words[i].end <= cfg.repeat_max_gap_s:
@@ -53,19 +66,23 @@ def detect_truncated_restarts(words: list[Word], lo: int, hi: int,
     cuts: list[CutSpan] = []
     for i in range(lo, hi - 1):
         frag = normalize(words[i].text)
-        full = normalize(words[i + 1].text)
-
         if len(frag) < cfg.min_fragment_chars:
             continue
+
+        j = _next_speech(words, i + 1, hi)
+        if j >= hi:
+            continue
+        full = normalize(words[j].text)
+
         if not full.startswith(frag) or full == frag:
             continue
         if len(full) - len(frag) < cfg.min_restart_growth:
             continue
-        if words[i + 1].start - words[i].end > cfg.restart_max_gap_s:
+        if words[j].start - words[i].end > cfg.restart_max_gap_s:
             continue
 
         cuts.append(CutSpan(
-            words[i].start, words[i + 1].start, {CutReason.DISFLUENCY},
+            words[i].start, words[j].start, {CutReason.DISFLUENCY},
             f"truncated restart: {frag!r} -> {full!r}"))
     return cuts
 

@@ -14,9 +14,9 @@ import sys
 from pathlib import Path
 
 from config import EditorConfig
-from models import Word
+from models import Word, normalize
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 # Whisper is trained on clean, readable transcripts, so it normalises speech:
 # it strips fillers, collapses repeated words, and repairs mid-word restarts.
@@ -107,7 +107,12 @@ def _decode(model, video: Path, cfg: EditorConfig) -> list[Word]:
     for seg in segments:
         for w in (seg.words or []):
             text = w.word.strip()
-            if text:
+            # Whisper emits standalone punctuation as its own token - a mid-word
+            # restart can arrive as 'config', '-', 'configuration', the hyphen
+            # carrying no audio at all. Dropping it here keeps every downstream
+            # stage from having to know that speech can be interrupted by a
+            # token that is not speech.
+            if text and normalize(text):
                 words.append(Word(text, float(w.start), float(w.end)))
     return words
 
