@@ -12,7 +12,7 @@ from pathlib import Path
 
 from config import EditorConfig
 from cutlist import keep_segments
-from models import CutSpan, LineMatch, ScriptLine, Word
+from models import CutSpan, LineMatch, ScriptLine, Span, Word
 
 
 def _adlib_spans(matches: list[LineMatch], cuts: list[CutSpan],
@@ -48,22 +48,37 @@ def _adlib_spans(matches: list[LineMatch], cuts: list[CutSpan],
 
 def build_report(lines: list[ScriptLine], matches: list[LineMatch],
                  cuts: list[CutSpan], words: list[Word], duration: float,
-                 cfg: EditorConfig, video: str) -> dict:
-    """Assemble the full review report as a plain dict."""
-    cut_seconds = sum(c.duration for c in cuts)
+                 cfg: EditorConfig, video: str,
+                 segments: list[Span] | None = None,
+                 mode: str = "subtractive") -> dict:
+    """Assemble the full review report as a plain dict.
+
+    segments: overrides the surviving segments. Reorder mode supplies its own,
+    in script order, since they are not the complement of a cut list.
+    mode: "subtractive" or "reorder" - changes what the report can honestly
+    say about unmatched content, which one mode keeps and the other discards.
+    """
+    if segments is None:
+        segments = keep_segments(cuts, duration)
+
+    # Derived from the segments rather than summed from the cuts, so the number
+    # is right in both modes. In reorder mode the segments are not a complement
+    # of the cut list at all.
+    output_seconds = sum(s.duration for s in segments)
     by_line = {m.line_idx: m for m in matches}
 
     return {
         "video": video,
         "duration": duration,
+        "mode": mode,
         "config": asdict(cfg),
         "summary": {
             "line_count": len(lines),
             "misses": sum(1 for m in matches if m.status.value == "miss"),
             "reviews": sum(1 for m in matches if m.status.value == "review"),
             "cut_count": len(cuts),
-            "cut_seconds": cut_seconds,
-            "output_seconds": duration - cut_seconds,
+            "cut_seconds": duration - output_seconds,
+            "output_seconds": output_seconds,
         },
         "lines": [
             {
@@ -89,8 +104,7 @@ def build_report(lines: list[ScriptLine], matches: list[LineMatch],
             for c in cuts
         ],
         "adlibs": _adlib_spans(matches, cuts, words),
-        "segments": [{"start": s.start, "end": s.end}
-                     for s in keep_segments(cuts, duration)],
+        "segments": [{"start": s.start, "end": s.end} for s in segments],
     }
 
 
@@ -119,10 +133,15 @@ def render_markdown(report: dict) -> str:
     call, and listing hundreds of gaps would bury the cuts that are.
     """
     s = report["summary"]
+    reordering = report.get("mode") == "reorder"
     out: list[str] = [
         "# Auto-Editor Review",
         "",
         f"**Source:** `{report['video']}`  ",
+        ("**Mode:** reorder - rebuilt from matched windows in script order. "
+         "Anything that did not match a script line has been DISCARDED.  "
+         if reordering else
+         "**Mode:** subtractive - original order preserved, unmatched content kept.  "),
         f"**Duration:** {_ts(report['duration'])} -> "
         f"{_ts(s['output_seconds'])} "
         f"({s['cut_seconds']:.1f}s removed across {s['cut_count']} cuts)  ",
@@ -165,13 +184,31 @@ def render_markdown(report: dict) -> str:
     if not judged:
         out.append("| _none_ | | | |")
 
-    out += ["", "## Kept, but not in the script", "",
-            "Probable ad-libs. These were left in deliberately.", ""]
+    if reordering:
+        out += ["", "## Discarded (not in the script)", "",
+                "Reorder mode keeps only what matched a script line. "
+                "**Everything below was removed**, including any ad-lib you "
+                "meant to keep. Use the default subtractive mode to preserve it.",
+                ""]
+    else:
+        out += ["", "## Kept, but not in the script", "",
+                "Probable ad-libs. These were left in deliberately.", ""]
+
     if report["adlibs"]:
         for a in report["adlibs"]:
             out.append(f"- `{_ts(a['start'])}` {a['text']}")
     else:
         out.append("_none_")
+
+    if reordering:
+        missed = [l for l in report["lines"] if l["status"] == "miss"]
+        out += ["", "## Holes in the reassembly", ""]
+        if missed:
+            out.append("These lines had no usable take, so the script order "
+                       "below is incomplete:")
+            out += [f"- line {l['index']}: {l['script']}" for l in missed]
+        else:
+            out.append("_none - every script line contributed a segment._")
 
     return "\n".join(out) + "\n"
 

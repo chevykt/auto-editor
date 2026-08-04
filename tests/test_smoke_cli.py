@@ -142,6 +142,39 @@ def test_from_report_renders_a_hand_edited_cut_list(project, tmp_path):
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_reorder_renders_out_of_order_segments(project, tmp_path):
+    """Reorder mode concatenates windows in script order, not timeline order.
+
+    ffmpeg has to seek backwards between segments here, which the subtractive
+    path never asks it to do - segments there are always ascending.
+    """
+    video, script = project
+    out = tmp_path / "reordered.mp4"
+
+    assert main(["--script", str(script), "--video", str(video),
+                 "--out", str(out), "--reorder", "--auto"]) == 0
+
+    rep = load_report(tmp_path / "raw.report.json")
+    assert rep["mode"] == "reorder"
+    assert out.exists()
+
+    expected = rep["summary"]["output_seconds"]
+    assert abs(probe_duration(out) - expected) < 0.5
+    # the ad-lib is gone: reorder keeps only matched windows
+    assert probe_duration(out) < probe_duration(video)
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_reorder_report_says_content_was_discarded_not_kept(project, tmp_path):
+    video, script = project
+    main(["--script", str(script), "--video", str(video), "--reorder"])
+    md = (tmp_path / "raw.report.md").read_text(encoding="utf-8")
+
+    assert "DISCARDED" in md
+    assert "Kept, but not in the script" not in md
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
 def test_no_clean_stutters_leaves_the_disfluencies_in(project, tmp_path):
     video, script = project
     main(["--script", str(script), "--video", str(video), "--no-clean-stutters"])

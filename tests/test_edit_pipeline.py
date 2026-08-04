@@ -85,11 +85,21 @@ def test_dry_run_and_auto_are_mutually_exclusive():
             ["--script", "s.txt", "--video", "v.mp4", "--dry-run", "--auto"])
 
 
-def test_reorder_and_export_xml_are_rejected_as_not_implemented():
-    for flag in ("--reorder", "--export-xml"):
-        with pytest.raises(SystemExit):
-            build_parser().parse_args(
-                ["--script", "s.txt", "--video", "v.mp4", flag])
+def test_export_xml_is_still_rejected_as_not_implemented():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["--script", "s.txt", "--video", "v.mp4", "--export-xml"])
+
+
+def test_reorder_is_accepted_and_reaches_the_config():
+    args = build_parser().parse_args(
+        ["--script", "s.txt", "--video", "v.mp4", "--reorder"])
+    assert config_from_args(args).reorder is True
+
+
+def test_reorder_is_off_by_default():
+    args = build_parser().parse_args(["--script", "s.txt", "--video", "v.mp4"])
+    assert config_from_args(args).reorder is False
 
 
 def test_video_is_always_required():

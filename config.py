@@ -32,6 +32,13 @@ class EditorConfig:
     min_fragment_chars: int = 3
     min_restart_growth: int = 3     # full word must exceed fragment by this many chars
 
+    # Reorder mode: rebuild from matched windows in script order
+    reorder: bool = False
+    # Reorder cuts at word boundaries rather than into silence, so segments
+    # breathe outward a little to avoid clipping. Bounded by the neighbouring
+    # word, so a segment can never swallow speech that belongs to something else.
+    reorder_pad_ms: int = 60
+
     # Cut list
     # 30ms, not the 75ms the design spec proposed. Calibrated against a real
     # recording: a duplicated "the" ran 220ms, and 75ms pulled in from each
@@ -72,6 +79,10 @@ class EditorConfig:
     @property
     def silence_padding_s(self) -> float:
         return self.silence_padding_ms / 1000.0
+
+    @property
+    def reorder_pad_s(self) -> float:
+        return self.reorder_pad_ms / 1000.0
 
     @property
     def min_segment_s(self) -> float:
