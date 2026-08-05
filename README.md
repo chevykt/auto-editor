@@ -81,6 +81,58 @@ The Markdown report has three sections:
   list is the safety net: scan it to confirm no cut ate an intentional ad-lib.
 - **Kept, but not in the script** — probable ad-libs, left in deliberately.
 
+## Batch mode (`--batch`)
+
+Process a whole folder of recordings in one go:
+
+```bash
+python edit.py --batch recordings/ --verbatim --auto --out-dir edited/
+```
+
+Each recording is paired with the same-stem `.txt` beside it — `lesson.mp4`
+with `lesson.txt`. Recordings with no matching script are **named and skipped**,
+not silently ignored; a batch that quietly processes four of five files is worse
+than one that tells you which it missed.
+
+Outputs land beside each recording, or under `--out-dir` if given:
+`lesson.cut.mp4`, `lesson.report.md`, `lesson.report.json`. A render is named
+`.cut.mp4` and excluded from discovery, so re-running a batch never edits its
+own output.
+
+One failed recording doesn't abandon the rest. Failures are collected, reported
+at the end, and the exit code is non-zero if any job failed — so a scripted run
+can tell success from partial success.
+
+## Config file (`--config`)
+
+Put the tuning knobs in TOML instead of retyping flags:
+
+```toml
+# auto-editor.toml
+verbatim = true
+threshold = 0.75
+padding_ms = 30
+silence_padding_ms = 75
+clean_stutters = true
+model = "medium"
+```
+
+```bash
+python edit.py --batch recordings/ --config auto-editor.toml --auto
+```
+
+Precedence is **defaults < config file < command line**, so a flag you type
+always wins over the file.
+
+Only *knobs* live in the file — every field of `EditorConfig` is settable.
+Actions like `--auto`, `--batch`, `--out` and `--export-xml` stay on the command
+line: a run's settings are worth saving and reusing, but what a particular
+invocation *does* is not.
+
+Unknown keys are an error listing the valid ones, rather than being ignored. A
+typo like `treshold` should tell you, not silently leave the threshold at its
+default.
+
 ## Premiere timeline export (`--export-xml`)
 
 Instead of trusting the auto-cut, hand the cuts to an editor and nudge them:
@@ -167,8 +219,9 @@ opposite fate.
 `--dry-run` (the default) and `--auto` are mutually exclusive; passing both is
 an error rather than a silent precedence rule.
 
-`--video` is always required. `--script` is required except with
-`--from-report`. `--out` is required whenever something is actually rendered.
+`--video` is required unless using `--batch`. `--script` is required except with
+`--from-report`. `--out` is required whenever something is actually rendered,
+and `--batch` uses `--out-dir` instead since it writes one output per recording.
 All of these, plus missing input files, are checked before transcription
 starts — a typo shouldn't cost you a full Whisper run to discover.
 
@@ -210,8 +263,8 @@ long recordings — exactly the ones this tool exists for.
   script order against a forward-moving cursor. If a line is genuinely spoken
   out of order, it is found by a full-recording fallback and flagged
   `(out of order)` in the report.
-- Batch mode over multiple script/recording pairs, and a config file instead of
-  CLI flags, are specced but not built.
+- Batch mode processes recordings sequentially, not in parallel. Transcription
+  dominates the runtime, and Whisper already uses the available cores.
 - The XML export is verified against the format's structural rules and against
   real footage metadata, but it has not been round-tripped through Premiere
   itself. If a sequence imports oddly, the report's JSON remains the source of

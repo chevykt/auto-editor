@@ -1,0 +1,56 @@
+# Example config. Copy, edit, and pass with --config.
+#
+#   python edit.py --batch recordings/ --config auto-editor.toml --auto
+#
+# Only tuning knobs belong here. Actions - --auto, --batch, --out, --export-xml
+# - stay on the command line: a run's settings are worth saving and reusing,
+# but what a particular invocation does is not.
+#
+# Precedence is defaults < this file < command line, so a flag you type wins.
+# Unknown keys are an error listing the valid ones, so a typo tells you rather
+# than silently leaving a value at its default.
+
+# --- transcription -------------------------------------------------------
+
+model = "medium"          # tiny | base | small | medium | large-v3
+# language = "en"         # omit to auto-detect
+
+# Whisper normalises speech by default, stripping the stutters and mid-word
+# restarts this tool exists to find. Turn this on to get them back. It can also
+# make Whisper invent fillers, so check the report's cut list before rendering.
+verbatim = true
+
+device = "auto"           # auto tries CUDA, falls back to CPU
+use_cache = true          # re-runs at new thresholds cost no transcription
+
+# --- matching a script line ----------------------------------------------
+
+threshold = 0.75          # fuzzy score a window must reach
+review_margin = 0.05      # band above it flagged REVIEW rather than OK
+lookahead_s = 30.0        # floor on how far ahead each line is searched
+tiebreak = "latest"       # retake tie-break: latest | score
+
+# --- what gets cut -------------------------------------------------------
+
+silence_ms = 600          # shortest gap treated as cuttable silence
+clean_stutters = true     # disfluency detection on
+duplicate_window_s = 4.0  # beyond this a repeat is deliberate, not a stutter
+max_disfluency_words = 5  # hard cap on what one disfluency cut may remove
+
+# --- cut boundaries ------------------------------------------------------
+
+# Tight on disfluencies: a duplicated word can be ~200ms, and a generous
+# pull-in would leave most of the stutter in. Generous on silence, which is
+# bounded by speech and needs the room to avoid clipping a breath.
+padding_ms = 30
+silence_padding_ms = 75
+min_segment_ms = 150      # surviving slivers shorter than this are absorbed
+
+# --- render --------------------------------------------------------------
+
+crossfade_ms = 75         # per-segment audio fade at cut points; 0 disables
+video_codec = "libx264"
+video_crf = 18
+video_preset = "medium"
+audio_codec = "aac"
+audio_bitrate = "192k"
