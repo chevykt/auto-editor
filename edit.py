@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 from aligner import align_script
-from config import EditorConfig
+from batch import find_jobs, output_path
+from config import EditorConfig, load_config_file
 from cutlist import build_cutlist
 from disfluency import detect_disfluencies
 from models import Span, Word
@@ -27,7 +28,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--script",
                    help="Voiceover script (.txt). Required unless --from-report")
-    p.add_argument("--video", required=True, help="Raw screen recording")
+    p.add_argument("--video", help="Raw screen recording. Required unless --batch")
+    p.add_argument("--batch", metavar="DIR",
+                   help="Process every recording in DIR against the same-stem "
+                        ".txt script beside it")
+    p.add_argument("--out-dir", metavar="DIR",
+                   help="Where batch outputs go; defaults to beside each video")
+    p.add_argument("--config", metavar="FILE",
+                   help="TOML file of tuning knobs. Command-line flags win")
     p.add_argument("--out", help="Rendered output (required with --auto/--from-report)")
 
     mode = p.add_mutually_exclusive_group()
@@ -116,6 +124,17 @@ def validate_args(args: argparse.Namespace) -> str | None:
     Checked before any work starts. Transcribing a 20-minute recording and
     only then reporting a missing --out would waste several minutes.
     """
+    if args.batch:
+        if args.video or args.script:
+            return "--batch pairs recordings with scripts itself; drop --video/--script"
+        if args.out:
+            return "--batch writes one output per recording; use --out-dir"
+        if args.from_report:
+            return "--from-report renders a single approved report, not a batch"
+        return None
+
+    if not args.video:
+        return "--video is required unless using --batch"
     if not args.from_report and not args.script:
         return "--script is required unless rendering with --from-report"
     if (args.auto or args.from_report) and not args.out:
@@ -129,6 +148,17 @@ def missing_inputs(args: argparse.Namespace) -> str | None:
     Checked up front so a typo'd path reports cleanly instead of surfacing a
     raw traceback part-way through a run.
     """
+    if args.config and not Path(args.config).exists():
+        return f"--config not found: {args.config}"
+
+    if args.batch:
+        directory = Path(args.batch)
+        if not directory.exists():
+            return f"--batch directory not found: {args.batch}"
+        if not directory.is_dir():
+            return f"--batch expects a directory: {args.batch}"
+        return None
+
     candidates = [("--video", args.video), ("--from-report", args.from_report)]
     if not args.from_report:
         candidates.append(("--script", args.script))
@@ -186,8 +216,107 @@ def analyse(words: list[Word], script_text: str, duration: float,
     return build_report(lines, matches, cuts, words, duration, cfg, video)
 
 
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse the command line, with a --config file supplying the defaults.
+
+    Precedence is code defaults < config file < command line. Loading the file
+    into argparse defaults, rather than merging afterwards, is what lets an
+    explicitly-typed flag win without having to detect which flags were typed.
+    """
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config")
+    known, _ = pre.parse_known_args(argv)
+
+    parser = build_parser()
+    if known.config and Path(known.config).exists():
+        parser.set_defaults(**load_config_file(known.config))
+
+    return parser.parse_args(argv)
+
+
+def run_job(video: Path, script: Path | None, args: argparse.Namespace,
+            cfg: EditorConfig, out: Path | None,
+            report_stem: str | None) -> None:
+    """One recording, end to end. Shared by the single and batch paths."""
+    if args.from_report:
+        report = load_report(args.from_report)
+    else:
+        script_text = script.read_text(encoding="utf-8")
+
+        print(f"  Transcribing {video.name} (model={cfg.model})...",
+              file=sys.stderr)
+        words, duration = transcribe(video, cfg)
+        print(f"  {len(words)} words, {duration:.1f}s", file=sys.stderr)
+
+        report = analyse(words, script_text, duration, cfg, str(video),
+                         split_sentences=args.split_sentences)
+
+        json_path, md_path, _ = report_paths(video, report_stem)
+        write_json(report, json_path)
+        write_markdown(report, md_path)
+
+        s = report["summary"]
+        print(f"  Report: {md_path}", file=sys.stderr)
+        print(f"  {s['cut_count']} cuts, {s['cut_seconds']:.1f}s removed "
+              f"-> {s['output_seconds']:.1f}s output", file=sys.stderr)
+        print(f"  {s['misses']} missed lines, {s['reviews']} needing review",
+              file=sys.stderr)
+
+    if args.export_xml:
+        _, _, xml_path = report_paths(video, report_stem)
+        segments = [Span(s["start"], s["end"]) for s in report["segments"]]
+        write_xml(video, segments, probe_video_meta(video), xml_path)
+        print(f"  Timeline: {xml_path}", file=sys.stderr)
+
+    if not (args.auto or args.from_report):
+        return
+
+    from render import render_video
+    render_video(video, out, report, cfg)
+    print(f"  Rendered: {out}", file=sys.stderr)
+
+
+def run_batch(args: argparse.Namespace, cfg: EditorConfig) -> int:
+    """Every recording in a directory, paired with its same-stem script."""
+    jobs, unpaired = find_jobs(args.batch)
+    out_dir = Path(args.out_dir) if args.out_dir else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    for orphan in unpaired:
+        print(f"skipping {orphan.name}: no {orphan.stem}.txt beside it",
+              file=sys.stderr)
+
+    if not jobs:
+        print(f"error: no script/recording pairs found in {args.batch}",
+              file=sys.stderr)
+        return 2
+
+    print(f"\n{len(jobs)} recording(s) to process\n", file=sys.stderr)
+    failures: list[tuple[str, str]] = []
+
+    for i, job in enumerate(jobs, 1):
+        print(f"[{i}/{len(jobs)}] {job.video.name}", file=sys.stderr)
+        out = output_path(job, out_dir, ".cut.mp4")
+        stem = str(output_path(job, out_dir, ".report")) if out_dir else None
+        try:
+            # one bad recording must not abandon the rest of the batch
+            run_job(job.video, job.script, args, cfg, out, stem)
+        except Exception as exc:                      # noqa: BLE001
+            print(f"  FAILED: {exc}", file=sys.stderr)
+            failures.append((job.video.name, str(exc)))
+        print("", file=sys.stderr)
+
+    done = len(jobs) - len(failures)
+    print(f"Batch complete: {done}/{len(jobs)} succeeded", file=sys.stderr)
+    for name, reason in failures:
+        print(f"  {name}: {reason}", file=sys.stderr)
+
+    return 1 if failures else 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = parse_args(argv)
 
     problem = validate_args(args)
     if problem:
@@ -200,45 +329,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     cfg = config_from_args(args)
-    video = Path(args.video)
 
-    if args.from_report:
-        report = load_report(args.from_report)
-    else:
-        script_text = Path(args.script).read_text(encoding="utf-8")
+    if args.batch:
+        return run_batch(args, cfg)
 
-        print(f"Transcribing {video.name} (model={cfg.model})...", file=sys.stderr)
-        words, duration = transcribe(video, cfg)
-        print(f"  {len(words)} words, {duration:.1f}s", file=sys.stderr)
-
-        report = analyse(words, script_text, duration, cfg, str(video),
-                         split_sentences=args.split_sentences)
-
-        json_path, md_path, _ = report_paths(video, args.report_path)
-        write_json(report, json_path)
-        write_markdown(report, md_path)
-
-        s = report["summary"]
-        print(f"\nReport: {md_path}", file=sys.stderr)
-        print(f"  {s['cut_count']} cuts, {s['cut_seconds']:.1f}s removed "
-              f"-> {s['output_seconds']:.1f}s output", file=sys.stderr)
-        print(f"  {s['misses']} missed lines, {s['reviews']} needing review",
-              file=sys.stderr)
-
-    if args.export_xml:
-        _, _, xml_path = report_paths(video, args.report_path)
-        segments = [Span(s["start"], s["end"]) for s in report["segments"]]
-        write_xml(video, segments, probe_video_meta(video), xml_path)
-        print(f"Timeline: {xml_path}", file=sys.stderr)
+    run_job(Path(args.video),
+            Path(args.script) if args.script else None,
+            args, cfg,
+            Path(args.out) if args.out else None,
+            args.report_path)
 
     if not (args.auto or args.from_report):
         print("\nReview the report, then re-run with --auto, or render the "
               "approved report with --from-report.", file=sys.stderr)
-        return 0
-
-    from render import render_video
-    render_video(video, Path(args.out), report, cfg)
-    print(f"\nRendered: {args.out}", file=sys.stderr)
     return 0
 
 

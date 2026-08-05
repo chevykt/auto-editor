@@ -1,7 +1,15 @@
 """Every tuning knob, one place. Nothing in this project hardcodes a threshold."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import tomllib
+from dataclasses import dataclass, fields
+from pathlib import Path
+
+# Two knobs are expressed as negative flags on the command line but as positive
+# fields here. A config file uses the positive form, which reads better, so the
+# value is inverted on the way to argparse.
+_INVERTED_FLAGS = {"clean_stutters": "no_clean_stutters",
+                   "use_cache": "no_cache"}
 
 
 @dataclass
@@ -91,3 +99,36 @@ class EditorConfig:
     @property
     def crossfade_s(self) -> float:
         return self.crossfade_ms / 1000.0
+
+
+def tunable_names() -> set[str]:
+    """Knob names a config file may set."""
+    return {f.name for f in fields(EditorConfig)}
+
+
+def load_config_file(path: str | Path) -> dict:
+    """Tuning knobs from a TOML file, as argparse defaults.
+
+    Only knobs live here - actions like --auto, --batch and --out stay on the
+    command line. A run's *settings* are worth saving and reusing; what a
+    particular invocation *does* is not.
+
+    Unknown keys are an error rather than being ignored, so a typo surfaces
+    instead of silently leaving a threshold at its default.
+    """
+    path = Path(path)
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+
+    unknown = set(data) - tunable_names()
+    if unknown:
+        raise ValueError(
+            f"unknown keys in {path}: {', '.join(sorted(unknown))}\n"
+            f"valid keys: {', '.join(sorted(tunable_names()))}")
+
+    defaults: dict = {}
+    for key, value in data.items():
+        if key in _INVERTED_FLAGS:
+            defaults[_INVERTED_FLAGS[key]] = not value
+        else:
+            defaults[key] = value
+    return defaults

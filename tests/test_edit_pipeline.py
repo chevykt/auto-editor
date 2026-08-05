@@ -108,9 +108,31 @@ def test_reorder_is_off_by_default():
     assert config_from_args(args).reorder is False
 
 
-def test_video_is_always_required():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["--script", "s.txt"])
+def test_video_is_required_without_batch():
+    args = build_parser().parse_args(["--script", "s.txt"])
+    assert "--video is required" in validate_args(args)
+
+
+def test_batch_replaces_video_and_script():
+    args = build_parser().parse_args(["--batch", "recordings/"])
+    assert validate_args(args) is None
+
+
+def test_batch_rejects_video_and_script():
+    args = build_parser().parse_args(["--batch", "d/", "--video", "v.mp4"])
+    assert "drop --video/--script" in validate_args(args)
+
+
+def test_batch_rejects_a_single_out_path():
+    """One output per recording; --out would collide across the batch."""
+    args = build_parser().parse_args(["--batch", "d/", "--out", "o.mp4"])
+    assert "use --out-dir" in validate_args(args)
+
+
+def test_batch_rejects_from_report():
+    args = build_parser().parse_args(
+        ["--batch", "d/", "--from-report", "r.json"])
+    assert "not a batch" in validate_args(args)
 
 
 def test_script_is_required_for_a_normal_run():

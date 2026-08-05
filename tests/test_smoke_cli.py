@@ -217,6 +217,96 @@ def test_export_xml_works_alongside_a_render(project, tmp_path):
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_batch_processes_every_pair_and_reports_orphans(project, tmp_path,
+                                                        capsys):
+    video, script = project
+    work = tmp_path / "work"
+    work.mkdir()
+
+    # two complete pairs plus one recording with no script
+    for name in ("lesson_a", "lesson_b"):
+        shutil.copy(video, work / f"{name}.mp4")
+        shutil.copy(script, work / f"{name}.txt")
+        save_cache(cache_path_for(work / f"{name}.mp4"), spoken_transcript(),
+                   20.0, transcription_key(EditorConfig()))
+    shutil.copy(video, work / "orphan.mp4")
+
+    assert main(["--batch", str(work)]) == 0
+
+    err = capsys.readouterr().err
+    assert "2 recording(s) to process" in err
+    assert "skipping orphan.mp4" in err
+    assert "2/2 succeeded" in err
+
+    for name in ("lesson_a", "lesson_b"):
+        assert (work / f"{name}.report.json").exists()
+        assert (work / f"{name}.report.md").exists()
+    assert not (work / "orphan.report.json").exists()
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_batch_renders_one_output_per_recording_into_out_dir(project, tmp_path):
+    video, script = project
+    work, edited = tmp_path / "work", tmp_path / "edited"
+    work.mkdir()
+
+    for name in ("one", "two"):
+        shutil.copy(video, work / f"{name}.mp4")
+        shutil.copy(script, work / f"{name}.txt")
+        save_cache(cache_path_for(work / f"{name}.mp4"), spoken_transcript(),
+                   20.0, transcription_key(EditorConfig()))
+
+    assert main(["--batch", str(work), "--out-dir", str(edited), "--auto"]) == 0
+
+    for name in ("one", "two"):
+        rendered = edited / f"{name}.cut.mp4"
+        assert rendered.exists()
+        assert probe_duration(rendered) < 20.0
+        assert (edited / f"{name}.report.md").exists()
+
+    # a re-run must not treat the renders as fresh input
+    assert main(["--batch", str(edited)]) == 2
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_batch_survives_one_bad_recording(project, tmp_path, capsys):
+    """One unreadable file must not abandon the rest of the batch."""
+    video, script = project
+    work = tmp_path / "work"
+    work.mkdir()
+
+    shutil.copy(video, work / "good.mp4")
+    shutil.copy(script, work / "good.txt")
+    save_cache(cache_path_for(work / "good.mp4"), spoken_transcript(), 20.0,
+               transcription_key(EditorConfig()))
+
+    (work / "broken.mp4").write_bytes(b"not a video")
+    shutil.copy(script, work / "broken.txt")
+
+    assert main(["--batch", str(work)]) == 1, "non-zero when any job fails"
+
+    err = capsys.readouterr().err
+    assert "1/2 succeeded" in err
+    assert (work / "good.report.json").exists(), "the good job still ran"
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_config_file_drives_a_real_run(project, tmp_path):
+    video, script = project
+    conf = tmp_path / "auto-editor.toml"
+    conf.write_text("threshold = 0.9\nsilence_ms = 900\nclean_stutters = false\n",
+                    encoding="utf-8")
+
+    assert main(["--script", str(script), "--video", str(video),
+                 "--config", str(conf)]) == 0
+
+    rep = load_report(tmp_path / "raw.report.json")
+    assert rep["config"]["threshold"] == 0.9
+    assert rep["config"]["silence_ms"] == 900
+    assert rep["config"]["clean_stutters"] is False
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
 def test_no_clean_stutters_leaves_the_disfluencies_in(project, tmp_path):
     video, script = project
     main(["--script", str(script), "--video", str(video), "--no-clean-stutters"])
