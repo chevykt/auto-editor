@@ -175,6 +175,48 @@ def test_reorder_report_says_content_was_discarded_not_kept(project, tmp_path):
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_export_xml_writes_a_timeline_matching_the_report(project, tmp_path):
+    """XML export against real media, where the frame rate comes from the file."""
+    from xml.etree import ElementTree as ET
+
+    video, script = project
+    assert main(["--script", str(script), "--video", str(video),
+                 "--export-xml"]) == 0
+
+    xml_path = tmp_path / "raw.report.xml"
+    assert xml_path.exists()
+
+    root = ET.fromstring(xml_path.read_text(encoding="utf-8"))
+    rep = load_report(tmp_path / "raw.report.json")
+
+    clips = root.findall("./sequence/media/video/track/clipitem")
+    assert len(clips) == len(rep["segments"])
+
+    # the clip at 25fps must line up with the first segment's timestamps
+    fps = 25.0
+    first = rep["segments"][0]
+    assert clips[0].find("in").text == str(int(round(first["start"] * fps)))
+    assert clips[0].find("out").text == str(int(round(first["end"] * fps)))
+
+    # sequence length agrees with the report, within a frame
+    total = int(root.find("./sequence/duration").text)
+    assert abs(total / fps - rep["summary"]["output_seconds"]) < (1.0 / fps) * 2
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_export_xml_works_alongside_a_render(project, tmp_path):
+    """The spec asks for XML instead of OR alongside a rendered MP4."""
+    video, script = project
+    out = tmp_path / "final.mp4"
+
+    assert main(["--script", str(script), "--video", str(video),
+                 "--out", str(out), "--export-xml", "--auto"]) == 0
+
+    assert out.exists()
+    assert (tmp_path / "raw.report.xml").exists()
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
 def test_no_clean_stutters_leaves_the_disfluencies_in(project, tmp_path):
     video, script = project
     main(["--script", str(script), "--video", str(video), "--no-clean-stutters"])

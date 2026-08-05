@@ -81,6 +81,31 @@ The Markdown report has three sections:
   list is the safety net: scan it to confirm no cut ate an intentional ad-lib.
 - **Kept, but not in the script** — probable ad-libs, left in deliberately.
 
+## Premiere timeline export (`--export-xml`)
+
+Instead of trusting the auto-cut, hand the cuts to an editor and nudge them:
+
+```bash
+python edit.py --script script.txt --video raw.mp4 --export-xml
+```
+
+Writes `raw.report.xml` alongside the reports — an FCP7 `xmeml` sequence that
+Premiere Pro imports directly (File → Import). You get one video track and one
+audio track, each cut into the surviving segments, all referencing your
+original file. Nothing is re-encoded and nothing is destroyed, so trimming a
+cut by a few frames is just dragging an edge.
+
+Works with `--auto` too, if you want the rendered MP4 *and* the timeline.
+Works in `--reorder` mode as well, where the clips are laid out in script
+order. Combine with `--from-report` to export a timeline from a cut list you
+already hand-edited.
+
+Frame rate, dimensions and duration are read from the source with `ffprobe`, so
+the sequence matches your footage. NTSC rates are handled properly — 29.97 is
+written as timebase 30 with the NTSC flag set, which is what the format
+requires; writing `29.97` directly produces a sequence Premiere silently
+misreads.
+
 ## Reorder mode (`--reorder`)
 
 The opposite approach, and off by default. Instead of removing what it's
@@ -132,6 +157,7 @@ opposite fate.
 | `--model` | medium | Whisper model size |
 | `--language` | auto | Force a language instead of auto-detecting |
 | `--no-clean-stutters` | off | Turn disfluency detection off entirely |
+| `--export-xml` | off | Also write a Premiere-compatible XML timeline |
 | `--reorder` | off | Rebuild in script order, discarding unmatched content |
 | `--reorder-pad-ms` | 60 | Outward breathing room on each reordered window |
 | `--split-sentences` | off | Split the script per sentence instead of per blank line |
@@ -184,8 +210,12 @@ long recordings — exactly the ones this tool exists for.
   script order against a forward-moving cursor. If a line is genuinely spoken
   out of order, it is found by a full-recording fallback and flagged
   `(out of order)` in the report.
-- `--export-xml` (Premiere timeline) is specced but not built. It is rejected
-  at the command line rather than silently ignored.
+- Batch mode over multiple script/recording pairs, and a config file instead of
+  CLI flags, are specced but not built.
+- The XML export is verified against the format's structural rules and against
+  real footage metadata, but it has not been round-tripped through Premiere
+  itself. If a sequence imports oddly, the report's JSON remains the source of
+  truth for what should have been cut.
 
 ## Tests
 
