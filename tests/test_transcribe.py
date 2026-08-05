@@ -253,3 +253,93 @@ def test_no_cache_flag_forces_a_fresh_transcription(tmp_path, monkeypatch):
     # the fresh result must overwrite the stale cache
     assert load_cached(cache_path_for(video),
                        transcription_key(cfg))[0][0].text == "fresh"
+
+
+def test_progress_is_reported_as_a_fraction(monkeypatch, tmp_path):
+    """A two-minute wait with no feedback reads as a hang."""
+    import faster_whisper
+
+    class FakeWord:
+        def __init__(self, word, start, end):
+            self.word, self.start, self.end = word, start, end
+
+    class FakeSegment:
+        def __init__(self, end, words):
+            self.end, self.words = end, words
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, *a, **k):
+            return [FakeSegment(5.0, [FakeWord(" one", 0.0, 1.0)]),
+                    FakeSegment(10.0, [FakeWord(" two", 5.0, 6.0)])], None
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    monkeypatch.setattr("transcribe.probe_duration", lambda v: 10.0)
+
+    seen = []
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"")
+    transcribe(video, EditorConfig(use_cache=False), on_progress=seen.append)
+
+    assert seen == [0.5, 1.0]
+
+
+def test_progress_never_exceeds_one(monkeypatch, tmp_path):
+    """Whisper's final segment can overshoot the probed duration."""
+    import faster_whisper
+
+    class FakeWord:
+        def __init__(self, word, start, end):
+            self.word, self.start, self.end = word, start, end
+
+    class FakeSegment:
+        end = 12.0
+        words = [FakeWord(" over", 0.0, 1.0)]
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, *a, **k):
+            return [FakeSegment()], None
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    monkeypatch.setattr("transcribe.probe_duration", lambda v: 10.0)
+
+    seen = []
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"")
+    transcribe(video, EditorConfig(use_cache=False), on_progress=seen.append)
+
+    assert seen == [1.0]
+
+
+def test_a_cache_hit_reports_complete_without_loading_a_model(tmp_path,
+                                                              monkeypatch):
+    video = tmp_path / "raw.mp4"
+    video.write_bytes(b"")
+    cfg = EditorConfig()
+    save_cache(cache_path_for(video), [Word("hi", 0.0, 0.2)], 3.0,
+               transcription_key(cfg))
+
+    def explode(*a, **k):
+        raise AssertionError("must not load a model on a cache hit")
+
+    monkeypatch.setattr("transcribe._run_whisper", explode)
+
+    seen = []
+    transcribe(video, cfg, on_progress=seen.append)
+    assert seen == [1.0]
+
+
+def test_omitting_the_callback_keeps_current_behaviour(tmp_path, monkeypatch):
+    video = tmp_path / "raw.mp4"
+    video.write_bytes(b"")
+    cfg = EditorConfig()
+    save_cache(cache_path_for(video), [Word("hi", 0.0, 0.2)], 3.0,
+               transcription_key(cfg))
+    ws, duration = transcribe(video, cfg)
+    assert [w.text for w in ws] == ["hi"]
+    assert duration == 3.0
