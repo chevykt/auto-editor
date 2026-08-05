@@ -22,7 +22,7 @@ def _fake_whisper(monkeypatch, fail_on_construct=(), fail_on_decode=()):
             if device in fail_on_construct:
                 raise RuntimeError(CUBLAS_ERROR)
 
-    def fake_decode(model, video, cfg):
+    def fake_decode(model, video, cfg, on_progress=None, duration=None):
         if model.device in fail_on_decode:
             raise RuntimeError(CUBLAS_ERROR)
         return [Word("ok", 0.0, 0.3)]
@@ -213,8 +213,10 @@ def test_verbatim_run_does_not_reuse_a_plain_cache(tmp_path, monkeypatch):
                transcription_key(EditorConfig()))
 
     monkeypatch.setattr("transcribe.probe_duration", lambda v: 3.0)
-    monkeypatch.setattr("transcribe._run_whisper",
-                        lambda v, c: [Word("the", 0.0, 0.2), Word("the", 0.2, 0.4)])
+    monkeypatch.setattr(
+        "transcribe._run_whisper",
+        lambda v, c, p=None, d=None: [Word("the", 0.0, 0.2),
+                                      Word("the", 0.2, 0.4)])
 
     ws, _ = transcribe(video, EditorConfig(verbatim=True))
     assert [w.text for w in ws] == ["the", "the"], "must re-transcribe, not reuse"
@@ -245,7 +247,7 @@ def test_no_cache_flag_forces_a_fresh_transcription(tmp_path, monkeypatch):
 
     monkeypatch.setattr("transcribe.probe_duration", lambda v: 9.0)
     monkeypatch.setattr("transcribe._run_whisper",
-                        lambda v, c: [Word("fresh", 0.0, 0.5)])
+                        lambda v, c, p=None, d=None: [Word("fresh", 0.0, 0.5)])
 
     ws, duration = transcribe(video, cfg)
     assert [w.text for w in ws] == ["fresh"]

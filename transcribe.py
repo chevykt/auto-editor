@@ -148,12 +148,7 @@ def _run_whisper(video: Path, cfg: EditorConfig,
         try:
             model = WhisperModel(cfg.model, device=device,
                                  compute_type=compute_type)
-            # Called with the pre-callback arity when progress isn't
-            # requested, so test doubles written against the old _decode
-            # signature (fixed at 3 positional params) keep working unchanged.
-            if on_progress:
-                return _decode(model, video, cfg, on_progress, duration)
-            return _decode(model, video, cfg)
+            return _decode(model, video, cfg, on_progress, duration)
         except (RuntimeError, ValueError) as exc:
             if last:
                 raise
@@ -183,12 +178,6 @@ def transcribe(video: str | Path, cfg: EditorConfig,
             return words, duration
 
     duration = probe_duration(video)
-    # Same reasoning as the _decode call above: keep the old 2-arg call shape
-    # when there is no callback, so a stubbed _run_whisper with the pre-
-    # callback signature still works.
-    if on_progress:
-        words = _run_whisper(video, cfg, on_progress, duration)
-    else:
-        words = _run_whisper(video, cfg)
+    words = _run_whisper(video, cfg, on_progress, duration)
     save_cache(cache, words, duration, key)
     return words, duration
