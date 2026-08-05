@@ -13,3 +13,4 @@ venv/
 *.transcript.json
 *.report.json
 *.report.md
+*.report.xml

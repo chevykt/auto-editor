@@ -11,22 +11,23 @@ from conftest import words
 def test_default_report_paths_append_rather_than_replace_suffixes():
     # "raw.report" looks like it already has a ".report" extension, so a
     # with_suffix(".json") here would silently write "raw.json" instead.
-    j, m = report_paths(Path("/tmp/raw.mp4"), None)
+    j, m, x = report_paths(Path("/tmp/raw.mp4"), None)
     assert j.name == "raw.report.json"
     assert m.name == "raw.report.md"
+    assert x.name == "raw.report.xml"
 
 
 def test_explicit_report_path_is_used_as_a_stem():
-    j, m = report_paths(Path("/tmp/raw.mp4"), "out/review")
-    assert j.name == "review.json"
-    assert m.name == "review.md"
+    j, m, x = report_paths(Path("/tmp/raw.mp4"), "out/review")
+    assert (j.name, m.name, x.name) == ("review.json", "review.md", "review.xml")
     assert j.parent == Path("out")
 
 
 def test_report_paths_survive_dots_in_the_video_stem():
-    j, m = report_paths(Path("/tmp/take.2.final.mp4"), None)
+    j, m, x = report_paths(Path("/tmp/take.2.final.mp4"), None)
     assert j.name == "take.2.final.report.json"
     assert m.name == "take.2.final.report.md"
+    assert x.name == "take.2.final.report.xml"
 
 
 def test_analyse_produces_matches_and_cuts():
@@ -85,10 +86,15 @@ def test_dry_run_and_auto_are_mutually_exclusive():
             ["--script", "s.txt", "--video", "v.mp4", "--dry-run", "--auto"])
 
 
-def test_export_xml_is_still_rejected_as_not_implemented():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(
-            ["--script", "s.txt", "--video", "v.mp4", "--export-xml"])
+def test_export_xml_is_accepted():
+    args = build_parser().parse_args(
+        ["--script", "s.txt", "--video", "v.mp4", "--export-xml"])
+    assert args.export_xml is True
+
+
+def test_export_xml_is_off_by_default():
+    args = build_parser().parse_args(["--script", "s.txt", "--video", "v.mp4"])
+    assert args.export_xml is False
 
 
 def test_reorder_is_accepted_and_reaches_the_config():

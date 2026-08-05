@@ -9,21 +9,13 @@ from aligner import align_script
 from config import EditorConfig
 from cutlist import build_cutlist
 from disfluency import detect_disfluencies
-from models import Word
+from models import Span, Word
 from reorder import reorder_segments
 from report import build_report, load_report, write_json, write_markdown
 from script_parser import parse_script
 from silence import detect_silence
 from transcribe import transcribe
-
-
-class _NotImplementedFlag(argparse.Action):
-    """Reject a specced-but-unbuilt flag loudly instead of ignoring it."""
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        parser.error(
-            f"{option_string} is not implemented in this build (phases 1-2 only). "
-            "See docs/superpowers/specs for the deferred scope.")
+from xml_export import probe_video_meta, write_xml
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,8 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reorder-pad-ms", type=int, default=d.reorder_pad_ms,
                    help="Outward breathing room on each reordered window")
 
-    p.add_argument("--export-xml", nargs=0, action=_NotImplementedFlag,
-                   help=argparse.SUPPRESS)
+    p.add_argument("--export-xml", action="store_true",
+                   help="Also write a Premiere-compatible XML timeline, so "
+                        "cuts can be nudged by hand instead of trusted blindly")
     return p
 
 
@@ -146,8 +139,9 @@ def missing_inputs(args: argparse.Namespace) -> str | None:
     return None
 
 
-def report_paths(video: Path, report_path: str | None) -> tuple[Path, Path]:
-    """Where the .json / .md report pair goes.
+def report_paths(video: Path,
+                 report_path: str | None) -> tuple[Path, Path, Path]:
+    """Where the .json / .md / .xml outputs go.
 
     Suffixes are appended by name, never via Path.with_suffix: the default
     stem "raw.report" already looks like it has a ".report" extension, so
@@ -156,7 +150,8 @@ def report_paths(video: Path, report_path: str | None) -> tuple[Path, Path]:
     stem = Path(report_path) if report_path \
         else video.with_name(video.stem + ".report")
     return (stem.with_name(stem.name + ".json"),
-            stem.with_name(stem.name + ".md"))
+            stem.with_name(stem.name + ".md"),
+            stem.with_name(stem.name + ".xml"))
 
 
 def analyse(words: list[Word], script_text: str, duration: float,
@@ -219,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         report = analyse(words, script_text, duration, cfg, str(video),
                          split_sentences=args.split_sentences)
 
-        json_path, md_path = report_paths(video, args.report_path)
+        json_path, md_path, _ = report_paths(video, args.report_path)
         write_json(report, json_path)
         write_markdown(report, md_path)
 
@@ -229,6 +224,12 @@ def main(argv: list[str] | None = None) -> int:
               f"-> {s['output_seconds']:.1f}s output", file=sys.stderr)
         print(f"  {s['misses']} missed lines, {s['reviews']} needing review",
               file=sys.stderr)
+
+    if args.export_xml:
+        _, _, xml_path = report_paths(video, args.report_path)
+        segments = [Span(s["start"], s["end"]) for s in report["segments"]]
+        write_xml(video, segments, probe_video_meta(video), xml_path)
+        print(f"Timeline: {xml_path}", file=sys.stderr)
 
     if not (args.auto or args.from_report):
         print("\nReview the report, then re-run with --auto, or render the "
