@@ -106,6 +106,27 @@ def test_a_path_in_the_filename_cannot_escape_the_job_directory(tmp_path):
     assert job.video.parent.parent == tmp_path
 
 
+@pytest.mark.parametrize("nasty", ["..", ".", "", "../..", "a/b/../.."])
+def test_dot_filenames_cannot_escape_either(tmp_path, nasty):
+    """Path("..").name returns ".." unchanged, unlike "." and "".
+
+    Stripping directory components is not sufficient on its own - a filename
+    of exactly ".." survives and resolves to the job folder's parent.
+    """
+    store = JobStore(tmp_path)
+    job = store.create(nasty, "hello")
+
+    assert job.video.name not in ("", ".", "..")
+    assert job.video.parent.parent == tmp_path
+    # the resolved path must still sit inside the job's own folder
+    assert job.video.resolve().parent == job.directory.resolve()
+
+
+def test_a_normal_filename_is_left_alone(tmp_path):
+    store = JobStore(tmp_path)
+    assert store.create("lesson one.mp4", "hello").video.name == "lesson one.mp4"
+
+
 def test_delete_removes_the_job_and_its_files(tmp_path):
     store = JobStore(tmp_path)
     job = store.create("raw.mp4", "hello")

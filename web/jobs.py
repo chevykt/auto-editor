@@ -159,8 +159,13 @@ class JobStore:
         directory.mkdir(parents=True, exist_ok=True)
 
         # Path(...).name strips any directory component, so an uploaded
-        # filename cannot write outside its own job folder.
-        safe = Path(filename).name or "upload.mp4"
+        # filename cannot write outside its own job folder. It is not quite
+        # enough on its own: Path("..").name returns ".." unchanged, which
+        # would resolve to the parent of the job folder. "." and "" already
+        # come back empty, so the three are rejected together.
+        safe = Path(filename).name
+        if safe in ("", ".", ".."):
+            safe = "upload.mp4"
 
         job = Job(id=job_id, video=directory / safe, script=script)
         with self._lock:
