@@ -11,12 +11,15 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from config import EditorConfig
 from models import Word, normalize
 
 CACHE_VERSION = 3
+
+ProgressFn = Callable[[float], None]
 
 # Whisper is trained on clean, readable transcripts, so it normalises speech:
 # it strips fillers, collapses repeated words, and repairs mid-word restarts.
@@ -93,7 +96,9 @@ def probe_duration(video: str | Path) -> float:
     return float(out.stdout.strip())
 
 
-def _decode(model, video: Path, cfg: EditorConfig) -> list[Word]:
+def _decode(model, video: Path, cfg: EditorConfig,
+            on_progress: ProgressFn | None = None,
+            duration: float | None = None) -> list[Word]:
     """Drain the segment generator into a flat word list.
 
     faster-whisper returns a lazy generator, so any GPU library failure
@@ -114,6 +119,11 @@ def _decode(model, video: Path, cfg: EditorConfig) -> list[Word]:
             # token that is not speech.
             if text and normalize(text):
                 words.append(Word(text, float(w.start), float(w.end)))
+
+        if on_progress and duration:
+            # the final segment can run past the probed duration
+            on_progress(min(seg.end / duration, 1.0))
+
     return words
 
 
@@ -126,7 +136,9 @@ def _device_attempts(cfg: EditorConfig) -> list[tuple[str, str]]:
     return [("cuda", "float16"), ("cpu", "int8")]
 
 
-def _run_whisper(video: Path, cfg: EditorConfig) -> list[Word]:
+def _run_whisper(video: Path, cfg: EditorConfig,
+                 on_progress: ProgressFn | None = None,
+                 duration: float | None = None) -> list[Word]:
     """Load the model and transcribe. Isolated so tests can stub it out."""
     from faster_whisper import WhisperModel
 
@@ -136,6 +148,11 @@ def _run_whisper(video: Path, cfg: EditorConfig) -> list[Word]:
         try:
             model = WhisperModel(cfg.model, device=device,
                                  compute_type=compute_type)
+            # Called with the pre-callback arity when progress isn't
+            # requested, so test doubles written against the old _decode
+            # signature (fixed at 3 positional params) keep working unchanged.
+            if on_progress:
+                return _decode(model, video, cfg, on_progress, duration)
             return _decode(model, video, cfg)
         except (RuntimeError, ValueError) as exc:
             if last:
@@ -146,9 +163,14 @@ def _run_whisper(video: Path, cfg: EditorConfig) -> list[Word]:
     raise RuntimeError("no transcription device available")
 
 
-def transcribe(video: str | Path,
-               cfg: EditorConfig) -> tuple[list[Word], float]:
-    """Word-level transcript plus media duration, cached beside the video."""
+def transcribe(video: str | Path, cfg: EditorConfig,
+               on_progress: ProgressFn | None = None
+               ) -> tuple[list[Word], float]:
+    """Word-level transcript plus media duration, cached beside the video.
+
+    on_progress receives a fraction from 0.0 to 1.0 as transcription advances.
+    A cache hit reports 1.0 once and loads no model.
+    """
     video = Path(video)
     cache = cache_path_for(video)
     key = transcription_key(cfg)
@@ -156,9 +178,17 @@ def transcribe(video: str | Path,
     if cfg.use_cache:
         words, duration = load_cached(cache, key)
         if words is not None and duration is not None:
+            if on_progress:
+                on_progress(1.0)
             return words, duration
 
     duration = probe_duration(video)
-    words = _run_whisper(video, cfg)
+    # Same reasoning as the _decode call above: keep the old 2-arg call shape
+    # when there is no callback, so a stubbed _run_whisper with the pre-
+    # callback signature still works.
+    if on_progress:
+        words = _run_whisper(video, cfg, on_progress, duration)
+    else:
+        words = _run_whisper(video, cfg)
     save_cache(cache, words, duration, key)
     return words, duration
