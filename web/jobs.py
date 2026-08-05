@@ -6,9 +6,20 @@ without an explicit approval call.
 """
 from __future__ import annotations
 
+import queue
+import shutil
+import threading
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+from config import EditorConfig
+from cutlist import keep_segments
+from edit import analyse
+from models import CutSpan, Span
+from render import render_video
+from transcribe import transcribe
 
 
 class JobState(str, Enum):
@@ -76,3 +87,127 @@ class Job:
             "error": self.error,
             "has_output": self.output is not None and self.output.exists(),
         }
+
+
+def approved_segments(report: dict, keep_applied: set[int]) -> list[Span]:
+    """Surviving segments once the user has toggled cuts off.
+
+    keep_applied holds indices into report["cuts"] that should STILL be
+    removed from the video. Anything not listed is put back.
+
+    Runs the survivors through the engine's own keep_segments, so an approved
+    cut list cannot drift from what the CLI would have produced.
+    """
+    cuts = [CutSpan(cut["start"], cut["end"])
+            for i, cut in enumerate(report["cuts"]) if i in keep_applied]
+    return keep_segments(cuts, report["duration"])
+
+
+def run_analysis(job: Job, cfg: EditorConfig,
+                 transcribe_fn=transcribe, analyse_fn=analyse) -> None:
+    """Take a job from queued to ready. Never further.
+
+    Stopping at ready is the review gate: rendering is a separate, explicit
+    call. The two function arguments exist so tests can drive the pipeline
+    without a speech model.
+    """
+    try:
+        job.advance(JobState.PROBING)
+        job.advance(JobState.TRANSCRIBING)
+
+        words, duration = transcribe_fn(
+            job.video, cfg,
+            on_progress=lambda fraction: setattr(job, "progress", fraction))
+
+        job.advance(JobState.ANALYSING)
+        job.report = analyse_fn(words, job.script, duration, cfg,
+                                str(job.video))
+        job.progress = 1.0
+        job.advance(JobState.READY)
+    except Exception as exc:                          # noqa: BLE001
+        job.fail(str(exc))
+
+
+def run_render(job: Job, cfg: EditorConfig, keep_applied: set[int],
+               render_fn=render_video) -> None:
+    """Render the approved cut list. Only callable from ready."""
+    try:
+        job.advance(JobState.RENDERING)
+        report = dict(job.report)
+        report["segments"] = [{"start": s.start, "end": s.end}
+                              for s in approved_segments(report, keep_applied)]
+
+        job.output = job.directory / "edited.mp4"
+        render_fn(job.video, job.output, report, cfg)
+        job.advance(JobState.DONE)
+    except Exception as exc:                          # noqa: BLE001
+        job.fail(str(exc))
+
+
+class JobStore:
+    """Jobs in memory, their files on disk under one directory each."""
+
+    def __init__(self, work_dir: str | Path):
+        self.work_dir = Path(work_dir)
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        self._jobs: dict[str, Job] = {}
+        self._lock = threading.Lock()
+
+    def create(self, filename: str, script: str) -> Job:
+        job_id = uuid.uuid4().hex[:12]
+        directory = self.work_dir / job_id
+        directory.mkdir(parents=True, exist_ok=True)
+
+        # Path(...).name strips any directory component, so an uploaded
+        # filename cannot write outside its own job folder.
+        safe = Path(filename).name or "upload.mp4"
+
+        job = Job(id=job_id, video=directory / safe, script=script)
+        with self._lock:
+            self._jobs[job_id] = job
+        return job
+
+    def get(self, job_id: str) -> Job | None:
+        with self._lock:
+            return self._jobs.get(job_id)
+
+    def delete(self, job_id: str) -> bool:
+        with self._lock:
+            job = self._jobs.pop(job_id, None)
+        if job is None:
+            return False
+        shutil.rmtree(job.directory, ignore_errors=True)
+        return True
+
+
+class Worker:
+    """One job at a time.
+
+    Transcription saturates the CPU, so running jobs concurrently would make
+    each one slower without finishing the set any sooner.
+    """
+
+    def __init__(self):
+        self._queue: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def submit(self, fn) -> None:
+        self._queue.put(fn)
+
+    def join(self) -> None:
+        """Block until the queue drains. For tests."""
+        self._queue.join()
+
+    def _loop(self) -> None:
+        while True:
+            fn = self._queue.get()
+            try:
+                fn()
+            except Exception:                         # noqa: BLE001
+                # run_analysis and run_render already record failure on the
+                # job; swallowing here keeps one bad job from killing the
+                # worker thread and stalling every job behind it.
+                pass
+            finally:
+                self._queue.task_done()
