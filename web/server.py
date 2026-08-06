@@ -65,4 +65,18 @@ def get_job(job_id: str) -> dict:
     return _job_or_404(job_id).as_dict()
 
 
+@app.get("/api/jobs/{job_id}/video")
+def get_video(job_id: str) -> FileResponse:
+    """The source recording.
+
+    FileResponse implements HTTP range requests, which is what makes seeking
+    to a cut instant instead of refetching the whole file. Verified by
+    tests/test_web_range.py rather than assumed.
+    """
+    job = _job_or_404(job_id)
+    if not job.video.exists():
+        raise HTTPException(status_code=404, detail="video not found")
+    return FileResponse(job.video, media_type="video/mp4")
+
+
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
