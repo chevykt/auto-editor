@@ -277,9 +277,19 @@ long recordings — exactly the ones this tool exists for.
 
 ## Known limits
 
-- Whisper sometimes smooths over very fast stutters and won't transcribe every
-  repeated fragment, so disfluency detection is best-effort. The report shows
-  what it did catch.
+- **A doubled short word is below this tool's floor.** Whisper collapses
+  `"the the"` into one `"the"` before the detectors ever see it, so there is
+  nothing in the transcript to find. Measured on a real recording where the
+  doubling was definitely spoken: `medium` produced 99 words with zero adjacent
+  duplicates, and `large-v3` produced the same 99 words with the same zero.
+  `--verbatim` did not recover it, `condition_on_previous_text=False` plus
+  `temperature=0` made capture worse, and a larger model changed nothing.
+
+  What does survive is anything where the two tokens differ:
+  `config → configuration` (truncated restart), a repeated *phrase*, and a
+  mid-line retake. Those are caught reliably. A doubled function word is not,
+  and no setting here fixes it — it is a property of what Whisper is trained to
+  produce.
 - A deliberate emphasis repeat ("no, no, don't click that") is not reliably
   distinguishable from an accidental stutter. The narrow window and the
   explicit disfluency-cut list in the report are the safety net. If one gets
