@@ -1,3 +1,79 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Auto-Editor</title></head>
-<body><p>Loading…</p></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auto-Editor</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+  <h1>Auto-Editor</h1>
+
+  <section id="start">
+    <div id="drop" class="drop">
+      <p id="drop-text">Drop a recording here, or click to choose</p>
+      <input type="file" id="file" accept="video/*" hidden>
+    </div>
+    <label for="script">Your script</label>
+    <textarea id="script" rows="10"
+      placeholder="Paste the script you read aloud. One beat per paragraph, separated by blank lines."></textarea>
+    <button id="analyse" disabled>Analyse</button>
+    <p id="start-error" class="error" hidden></p>
+  </section>
+
+  <section id="working" hidden>
+    <p id="stage">Queued</p>
+    <div class="bar"><div id="bar-fill"></div></div>
+    <p class="hint">Transcribing runs slower than realtime on CPU. The first
+      run downloads the speech model.</p>
+  </section>
+
+  <section id="review" hidden>
+    <div class="summary">
+      <span id="filename"></span>
+      <span id="duration"></span>
+    </div>
+
+    <video id="player" controls preload="metadata"></video>
+    <div id="timeline" class="timeline"></div>
+    <div class="legend">
+      <span><i class="sw kept"></i>kept</span>
+      <span><i class="sw silence"></i>silence</span>
+      <span><i class="sw disfluency"></i>disfluency</span>
+      <span><i class="sw retake"></i>retake</span>
+    </div>
+
+    <p id="silence-summary" class="hint"></p>
+
+    <h2>Judgment calls</h2>
+    <p class="hint">Uncheck anything you want to keep. Play each one to hear it
+      before deciding.</p>
+    <div id="cuts"></div>
+
+    <h2>Kept, not in your script</h2>
+    <p class="hint">Probable ad-libs. These stay in.</p>
+    <div id="adlibs"></div>
+
+    <h2>Script lines</h2>
+    <div id="lines"></div>
+
+    <div class="actions">
+      <button id="render">Render</button>
+      <button id="xml" class="secondary">Download XML</button>
+    </div>
+    <p id="review-error" class="error" hidden></p>
+  </section>
+
+  <section id="finished" hidden>
+    <p id="finished-text"></p>
+    <video id="result" controls preload="metadata"></video>
+    <div class="actions">
+      <a id="download" class="button">Download</a>
+      <button id="again" class="secondary">Edit another</button>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
