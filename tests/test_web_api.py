@@ -87,3 +87,22 @@ def test_the_index_page_is_served(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "<html" in response.text.lower() or "<!doctype" in response.text.lower()
+
+
+def test_static_files_must_be_revalidated(client):
+    """A cached app.js looks exactly like a fix that did not take effect.
+
+    The file is right on disk, the server sends the right bytes, and the
+    browser runs the old script anyway. Found by a screenshot showing stale
+    UI text after a verified-correct deploy.
+    """
+    for path in ("/static/app.js", "/static/style.css"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers.get("cache-control") == "no-cache", path
+
+
+def test_the_index_page_is_not_cached_either(client):
+    """index.html is served by a route, not StaticFiles, and is re-read from
+    disk on every request - so it cannot go stale."""
+    assert client.get("/").status_code == 200
