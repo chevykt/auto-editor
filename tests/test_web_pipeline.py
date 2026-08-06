@@ -56,6 +56,54 @@ def test_progress_reaches_the_job(tmp_path):
     assert job.progress == 1.0, "completes at 1.0 once analysed"
 
 
+def test_monkeypatching_the_module_level_transcribe_takes_effect(tmp_path,
+                                                                monkeypatch):
+    """Injection must resolve at call time, not at import time.
+
+    With `transcribe_fn=transcribe` as a default the reference is captured
+    when the function is DEFINED, so a later monkeypatch is ignored and a
+    test that believes it stubbed Whisper quietly loads the real model. That
+    failure looks like a hang, not an error, which is the worst kind.
+    """
+    monkeypatch.setattr(
+        "web.jobs.transcribe",
+        lambda video, cfg, on_progress=None: ([Word("stub", 0.0, 0.2)], 10.0))
+    monkeypatch.setattr(
+        "web.jobs.analyse",
+        lambda words, script, duration, cfg, video, split_sentences=False: REPORT)
+
+    store = JobStore(tmp_path)
+    job = store.create("raw.mp4", "hello")
+    run_analysis(job, EditorConfig())
+
+    assert job.state is JobState.READY
+    assert job.report == REPORT
+
+
+def test_monkeypatching_the_module_level_render_takes_effect(tmp_path,
+                                                             monkeypatch):
+    from web.jobs import run_render
+
+    seen = {}
+
+    def fake_render(video, out, report, cfg):
+        seen["segments"] = report["segments"]
+
+    monkeypatch.setattr("web.jobs.render_video", fake_render)
+
+    store = JobStore(tmp_path)
+    job = store.create("raw.mp4", "hello")
+    for state in (JobState.PROBING, JobState.TRANSCRIBING, JobState.ANALYSING,
+                  JobState.READY):
+        job.advance(state)
+    job.report = dict(REPORT)
+
+    run_render(job, EditorConfig(), {0, 1})
+
+    assert job.state is JobState.DONE
+    assert seen["segments"], "the stub must have been called, not render_video"
+
+
 def test_a_transcription_failure_fails_the_job_with_a_message(tmp_path):
     store = JobStore(tmp_path)
     job = store.create("raw.mp4", "hello")

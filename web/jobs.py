@@ -104,13 +104,22 @@ def approved_segments(report: dict, keep_applied: set[int]) -> list[Span]:
 
 
 def run_analysis(job: Job, cfg: EditorConfig,
-                 transcribe_fn=transcribe, analyse_fn=analyse) -> None:
+                 transcribe_fn=None, analyse_fn=None) -> None:
     """Take a job from queued to ready. Never further.
 
     Stopping at ready is the review gate: rendering is a separate, explicit
     call. The two function arguments exist so tests can drive the pipeline
     without a speech model.
+
+    They default to None rather than to the functions themselves, so the
+    module-level names are looked up when this RUNS, not when it is defined.
+    A default of `transcribe_fn=transcribe` captures the reference at import
+    and silently ignores any later monkeypatch - which means a test that
+    thinks it stubbed Whisper actually loads it.
     """
+    transcribe_fn = transcribe_fn or transcribe
+    analyse_fn = analyse_fn or analyse
+
     try:
         job.advance(JobState.PROBING)
         job.advance(JobState.TRANSCRIBING)
@@ -129,8 +138,14 @@ def run_analysis(job: Job, cfg: EditorConfig,
 
 
 def run_render(job: Job, cfg: EditorConfig, keep_applied: set[int],
-               render_fn=render_video) -> None:
-    """Render the approved cut list. Only callable from ready."""
+               render_fn=None) -> None:
+    """Render the approved cut list. Only callable from ready.
+
+    render_fn defaults to None for the same reason as run_analysis: a default
+    bound at import time cannot be monkeypatched.
+    """
+    render_fn = render_fn or render_video
+
     try:
         job.advance(JobState.RENDERING)
         report = dict(job.report)

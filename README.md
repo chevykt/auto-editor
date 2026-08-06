@@ -38,6 +38,31 @@ winget install Gyan.FFmpeg
 Requires Python 3.11+ and ffmpeg on PATH. Developed against Python 3.14.6 and
 ffmpeg 8.1.2.
 
+## The app
+
+A local web UI. Drop in a recording, paste your script, approve the cuts you
+agree with, render.
+
+```bash
+python -m web
+```
+
+Opens at `http://127.0.0.1:8000`. Everything stays on your machine — nothing is
+uploaded anywhere, and the server binds to localhost only.
+
+The review screen is the point. After analysis you get the source video, a
+timeline coloured by what happens to each span, and every judgment-call cut as a
+row you can play and uncheck. Silence is summarised rather than listed, since it
+is never a judgment call. Output duration updates as you toggle, so the cost of
+keeping something is visible before you commit to it.
+
+Nothing renders until you ask. The job state machine has no transition from
+`ready` to `done` without an explicit approval call, so "report first, render
+second" is structural rather than a habit.
+
+The app runs in subtractive mode with verbatim transcription on. `--reorder`,
+batch mode and the tuning knobs stay on the command line.
+
 ## Use
 
 Analyse and produce a review report. This is the default — nothing is rendered:
