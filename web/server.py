@@ -142,4 +142,22 @@ def export_xml(job_id: str, request: RenderRequest) -> Response:
                  f'attachment; filename="{job.video.stem}.xml"'})
 
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+class RevalidatingStatic(StaticFiles):
+    """Static files the browser always revalidates.
+
+    Starlette sends ETag and Last-Modified but no Cache-Control, so a browser
+    is free to keep serving a cached app.js without asking. That failure looks
+    exactly like a code change that did not take effect: the file is correct on
+    disk, the server sends the correct bytes, and the page runs the old script.
+
+    no-cache is not no-store - a 304 is still allowed, so revalidation costs a
+    round trip on localhost and nothing else.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", RevalidatingStatic(directory=STATIC), name="static")
