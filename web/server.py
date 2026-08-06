@@ -3,14 +3,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import EditorConfig
 from render import render_video
-from web.jobs import JobState, JobStore, Worker, run_analysis, run_render
+from web.jobs import (JobState, JobStore, Worker, approved_segments,
+                      run_analysis, run_render)
+from xml_export import build_xml, probe_video_meta
 
 STATIC = Path(__file__).resolve().parent / "static"
 WORK = Path(__file__).resolve().parent / "work"
@@ -118,6 +120,23 @@ def delete_job(job_id: str) -> dict:
     if not STORE.delete(job_id):
         raise HTTPException(status_code=404, detail="no such job")
     return {"deleted": job_id}
+
+
+@app.post("/api/jobs/{job_id}/xml")
+def export_xml(job_id: str, request: RenderRequest) -> Response:
+    """A Premiere timeline for the cut list as currently approved."""
+    job = _job_or_404(job_id)
+    if job.state is not JobState.READY:
+        raise HTTPException(
+            status_code=409,
+            detail=f"job is {job.state.value}, not ready to export")
+
+    segments = approved_segments(job.report, set(request.cuts))
+    xml = build_xml(job.video, segments, probe_video_meta(job.video))
+    return Response(
+        content=xml, media_type="application/xml",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{job.video.stem}.xml"'})
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
