@@ -126,10 +126,13 @@ def delete_job(job_id: str) -> dict:
 def export_xml(job_id: str, request: RenderRequest) -> Response:
     """A Premiere timeline for the cut list as currently approved."""
     job = _job_or_404(job_id)
-    if job.state is not JobState.READY:
+    # Allowed from done as well as ready. Exporting a timeline is read-only,
+    # and "I rendered it, but now I want to nudge the cuts in Premiere" is a
+    # reasonable thing to want after the fact.
+    if job.state not in (JobState.READY, JobState.DONE):
         raise HTTPException(
             status_code=409,
-            detail=f"job is {job.state.value}, not ready to export")
+            detail=f"job is {job.state.value}, not analysed yet")
 
     segments = approved_segments(job.report, set(request.cuts))
     xml = build_xml(job.video, segments, probe_video_meta(job.video))
