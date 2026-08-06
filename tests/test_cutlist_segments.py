@@ -72,11 +72,15 @@ def test_build_cutlist_merges_pads_and_absorbs_in_order():
 
 
 def test_build_cutlist_pads_merged_boundaries_by_their_own_origin():
-    """End to end: a silence gap running into a stutter."""
+    """End to end: a silence gap running into a stutter.
+
+    The silence end shrinks inward to protect a breath; the disfluency end
+    grows outward so none of the fumble survives.
+    """
     cfg = EditorConfig(padding_ms=30, silence_padding_ms=100, min_segment_ms=0)
     cuts = [CutSpan(1.0, 2.0, {CutReason.SILENCE}),
             CutSpan(2.0, 2.5, {CutReason.DISFLUENCY})]
     final = build_cutlist(cuts, duration=10.0, cfg=cfg)
     assert len(final) == 1
     assert round(final[0].start, 3) == 1.1
-    assert round(final[0].end, 3) == 2.47
+    assert round(final[0].end, 3) == 2.53

@@ -345,3 +345,58 @@ def test_omitting_the_callback_keeps_current_behaviour(tmp_path, monkeypatch):
     ws, duration = transcribe(video, cfg)
     assert [w.text for w in ws] == ["hi"]
     assert duration == 3.0
+
+
+def test_verbatim_leaves_whisper_decoding_defaults_alone(monkeypatch, tmp_path):
+    """Tried and rejected: condition_on_previous_text=False + temperature=0.
+
+    The theory was that Whisper conditioning on its own increasingly tidy
+    output dilutes the disfluent prompt. Measured on a real 80s recording it
+    made capture WORSE - 99 words down to 96, losing a mid-line restart the
+    defaults had caught. Only the prompt is set.
+    """
+    import faster_whisper
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, *a, **k):
+            seen.update(k)
+            return [], None
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    monkeypatch.setattr("transcribe.probe_duration", lambda v: 10.0)
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"")
+    transcribe(video, EditorConfig(use_cache=False, verbatim=True))
+
+    assert seen["initial_prompt"] == VERBATIM_PROMPT
+    assert "condition_on_previous_text" not in seen
+    assert "temperature" not in seen
+
+
+def test_normal_mode_leaves_whisper_defaults_alone(monkeypatch, tmp_path):
+    import faster_whisper
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, *a, **k):
+            seen.update(k)
+            return [], None
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    monkeypatch.setattr("transcribe.probe_duration", lambda v: 10.0)
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"")
+    transcribe(video, EditorConfig(use_cache=False))
+
+    assert "condition_on_previous_text" not in seen
+    assert "temperature" not in seen
+    assert seen["initial_prompt"] is None
