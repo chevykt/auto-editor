@@ -121,8 +121,19 @@ async function poll() {
     return;
   }
 
-  $("stage").textContent = STAGE_TEXT[state.state] || state.state;
-  $("bar-fill").style.width = `${Math.round(state.progress * 100)}%`;
+  // Whisper reports nothing until its first segment, and loading the model
+  // takes ~17s. Showing "Transcribing 0%" against a dead bar for that long
+  // reads as a hang - which is the exact thing the progress bar exists to
+  // prevent. Name what is actually happening instead.
+  const loadingModel = state.state === "transcribing" && state.progress === 0;
+  $("stage").textContent = loadingModel
+    ? "Loading the speech model…"
+    : STAGE_TEXT[state.state] || state.state;
+
+  $("bar-fill").classList.toggle("indeterminate", loadingModel);
+  $("bar-fill").style.width =
+    loadingModel ? "100%" : `${Math.round(state.progress * 100)}%`;
+
   setTimeout(poll, 500);
 }
 

@@ -62,3 +62,16 @@ def test_xml_before_ready_is_rejected(client):
         data={"script": "hello"}).json()["id"]
     assert client.post(f"/api/jobs/{job_id}/xml",
                        json={"cuts": []}).status_code == 409
+
+
+def test_xml_is_still_available_after_rendering(client, ready_job):
+    """Exporting a timeline is read-only, so finishing a render must not
+    lock you out of it. Found by driving the real UI end to end."""
+    job = server.STORE.get(ready_job)
+    job.advance(server.JobState.RENDERING)
+    job.advance(server.JobState.DONE)
+
+    response = client.post(f"/api/jobs/{ready_job}/xml", json={"cuts": [0]})
+    assert response.status_code == 200
+    root = ET.fromstring(response.text)
+    assert root.findall("./sequence/media/video/track/clipitem")
