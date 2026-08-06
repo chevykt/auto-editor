@@ -6,8 +6,10 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from config import EditorConfig
+from render import render_video
 from web.jobs import JobState, JobStore, Worker, run_analysis, run_render
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -77,6 +79,45 @@ def get_video(job_id: str) -> FileResponse:
     if not job.video.exists():
         raise HTTPException(status_code=404, detail="video not found")
     return FileResponse(job.video, media_type="video/mp4")
+
+
+class RenderRequest(BaseModel):
+    """Indices into report["cuts"] that should STILL be removed.
+
+    Anything absent has been unchecked in the review screen and stays in the
+    finished video.
+    """
+    cuts: list[int]
+
+
+@app.post("/api/jobs/{job_id}/render")
+def start_render(job_id: str, request: RenderRequest) -> dict:
+    job = _job_or_404(job_id)
+    if job.state is not JobState.READY:
+        raise HTTPException(
+            status_code=409,
+            detail=f"job is {job.state.value}, not ready to render")
+
+    cfg = editor_config()
+    keep = set(request.cuts)
+    WORKER.submit(lambda: run_render(job, cfg, keep, render_fn=render_video))
+    return {"state": "rendering"}
+
+
+@app.get("/api/jobs/{job_id}/download")
+def download(job_id: str) -> FileResponse:
+    job = _job_or_404(job_id)
+    if job.output is None or not job.output.exists():
+        raise HTTPException(status_code=404, detail="nothing rendered yet")
+    return FileResponse(job.output, media_type="video/mp4",
+                        filename=f"{job.video.stem}.edited.mp4")
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str) -> dict:
+    if not STORE.delete(job_id):
+        raise HTTPException(status_code=404, detail="no such job")
+    return {"deleted": job_id}
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
