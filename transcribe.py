@@ -17,7 +17,7 @@ from pathlib import Path
 from config import EditorConfig
 from models import Word, normalize
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 ProgressFn = Callable[[float], None]
 
@@ -105,6 +105,12 @@ def _decode(model, video: Path, cfg: EditorConfig,
     surfaces here during iteration rather than at model construction. That is
     why the fallback in _run_whisper wraps this call, not just the constructor.
     """
+    # Tried and rejected: condition_on_previous_text=False plus temperature=0
+    # in verbatim mode. The theory was sound - Whisper conditions on its own
+    # increasingly tidy output, which should dilute the disfluent prompt - but
+    # measured on a real recording it made capture WORSE, dropping from 99 to
+    # 96 words and losing a mid-line restart the default settings had caught.
+    # Left at Whisper's defaults on the evidence.
     segments, _ = model.transcribe(str(video), word_timestamps=True,
                                    language=cfg.language,
                                    initial_prompt=effective_prompt(cfg))

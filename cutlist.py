@@ -31,14 +31,29 @@ def merge_spans(cuts: list[CutSpan]) -> list[CutSpan]:
     return out
 
 
-def padding_for(reasons: set[CutReason], cfg: EditorConfig) -> float:
-    """How far to pull in a boundary produced by a cut with these reasons.
+def padding_for(reasons: set[CutReason], cfg: EditorConfig) -> tuple[float, float]:
+    """Signed offsets for (start, end) of a cut with these reasons.
 
-    Silence earns the generous value; anything else gets the tight one. A
-    mixed span counts as non-silence, because the part that needs protecting
-    from over-trimming is the disfluency.
+    Positive moves a boundary later. Direction depends on what the span
+    CONTAINS, which is the thing that is easy to get backwards:
+
+    A silence span contains no speech, so shrinking it inward keeps a margin
+    of quiet on each side and cannot clip a breath or a plosive.
+
+    A disfluency or retake span IS the speech being removed. Shrinking it
+    inward leaves the edges of the fumble audible - you still hear the front
+    of the abandoned word. Those spans grow outward instead, so the whole
+    fragment goes. The cost is up to padding_ms of the neighbouring keeper,
+    which is the right trade: a clipped syllable is less distracting than
+    hearing the mistake you were trying to remove.
+
+    A mixed span counts as speech, because it contains some.
     """
-    return cfg.silence_padding_s if reasons == {CutReason.SILENCE} else cfg.padding_s
+    if reasons == {CutReason.SILENCE}:
+        pad = cfg.silence_padding_s
+        return (+pad, -pad)          # inward: shrink into the quiet
+    pad = cfg.padding_s
+    return (-pad, +pad)              # outward: swallow the whole fragment
 
 
 def apply_padding(cuts: list[CutSpan], cfg: EditorConfig,
@@ -60,16 +75,18 @@ def apply_padding(cuts: list[CutSpan], cfg: EditorConfig,
     """
     origins = list(sources) if sources is not None else list(cuts)
 
-    def pad_at(value: float, attr: str) -> float:
+    def offset_at(value: float, attr: str) -> float:
+        """The signed shift for one boundary, from whichever cut produced it."""
+        index = 0 if attr == "start" else 1
         for origin in origins:
             if abs(getattr(origin, attr) - value) < 1e-9:
-                return padding_for(origin.reasons, cfg)
-        return cfg.padding_s
+                return padding_for(origin.reasons, cfg)[index]
+        return padding_for({CutReason.DISFLUENCY}, cfg)[index]
 
     out: list[CutSpan] = []
     for c in cuts:
-        start = c.start + pad_at(c.start, "start")
-        end = c.end - pad_at(c.end, "end")
+        start = max(0.0, c.start + offset_at(c.start, "start"))
+        end = c.end + offset_at(c.end, "end")
         if end - start <= 1e-9:
             continue
         out.append(CutSpan(round(start, 6), round(end, 6),
