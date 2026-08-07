@@ -17,7 +17,13 @@ from pathlib import Path
 from config import EditorConfig
 from models import Word, normalize
 
-CACHE_VERSION = 4
+# Bump this whenever transcription behaviour changes in EITHER direction.
+# Reverting a change needs a bump just as much as making one: v4 was cut with
+# an experimental decoding setting that lost a mid-line restart, and because
+# the revert kept version 4 the cache stayed valid and a render was built from
+# the bad transcript. The key covers model, language and prompt - it cannot
+# see decoding parameters, so this number is the only guard.
+CACHE_VERSION = 5
 
 ProgressFn = Callable[[float], None]
 

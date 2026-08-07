@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from config import EditorConfig
@@ -400,3 +401,24 @@ def test_normal_mode_leaves_whisper_defaults_alone(monkeypatch, tmp_path):
     assert "condition_on_previous_text" not in seen
     assert "temperature" not in seen
     assert seen["initial_prompt"] is None
+
+
+def test_cache_version_is_the_only_guard_on_decoding_changes(tmp_path):
+    """A stale cache once produced a render missing a whole retake.
+
+    transcription_key covers model, language and prompt. It cannot see
+    decoding parameters, so any change to how Whisper is CALLED - including
+    reverting one - has to bump CACHE_VERSION or the old transcript stays
+    valid and gets reused.
+    """
+    cfg = EditorConfig(verbatim=True)
+    path = tmp_path / "raw.transcript.json"
+    save_cache(path, [Word("stale", 0.0, 0.2)], 3.0, transcription_key(cfg))
+
+    import transcribe as module
+    monkeyed = json.loads(path.read_text(encoding="utf-8"))
+    monkeyed["version"] = module.CACHE_VERSION - 1
+    path.write_text(json.dumps(monkeyed), encoding="utf-8")
+
+    assert load_cached(path, transcription_key(cfg)) == (None, None), \
+        "a transcript from an older CACHE_VERSION must not be served"
