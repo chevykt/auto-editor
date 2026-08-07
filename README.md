@@ -285,6 +285,14 @@ long recordings — exactly the ones this tool exists for.
   `--verbatim` did not recover it, `condition_on_previous_text=False` plus
   `temperature=0` made capture worse, and a larger model changed nothing.
 
+  Whisper merges the pair rather than dropping one, so the surviving token is
+  longer than usual — which looks like a detectable signal until you measure
+  it. On that recording the merged `"the"` ran 0.40s against a 0.30s median,
+  but `you` (0.56s), `and` (0.50s), `or` (0.50s), `go` (0.48s) and `run`
+  (0.42s) were all longer, and a second, perfectly normal `"the"` was also
+  0.40s. A duration heuristic would cut ordinary words first and pick the
+  wrong `"the"` half the time. Checked and rejected on the numbers.
+
   What does survive is anything where the two tokens differ:
   `config → configuration` (truncated restart), a repeated *phrase*, and a
   mid-line retake. Those are caught reliably. A doubled function word is not,
