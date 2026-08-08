@@ -66,7 +66,11 @@ async def create_job(video: UploadFile = File(...),
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> dict:
-    return _job_or_404(job_id).as_dict()
+    job = _job_or_404(job_id)
+    payload = job.as_dict()
+    # Only meaningful while queued, and only then is it worth showing.
+    payload["waiting"] = WORKER.waiting() if job.state is JobState.QUEUED else 0
+    return payload
 
 
 @app.get("/api/jobs/{job_id}/video")

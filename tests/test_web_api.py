@@ -106,3 +106,18 @@ def test_the_index_page_is_not_cached_either(client):
     """index.html is served by a route, not StaticFiles, and is re-read from
     disk on every request - so it cannot go stale."""
     assert client.get("/").status_code == 200
+
+
+def test_a_queued_job_reports_how_many_are_ahead(client):
+    """Transcription is serial, so a job can sit at "queued" through no fault
+    of its own. Without a count there is no way to tell a busy queue from a
+    wedged server - which is exactly how it looked when one did wedge."""
+    job_id = upload(client).json()["id"]
+    body = client.get(f"/api/jobs/{job_id}").json()
+    assert "waiting" in body
+
+
+def test_waiting_is_zero_once_a_job_is_past_the_queue(client):
+    job_id = upload(client).json()["id"]
+    server.WORKER.join()
+    assert client.get(f"/api/jobs/{job_id}").json()["waiting"] == 0
