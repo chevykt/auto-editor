@@ -92,9 +92,15 @@ python edit.py --video raw_recording.mp4 --from-report raw_recording.report.json
 No `--script` needed there — the cut list is already decided, so the script
 would never be read.
 
-The transcript is cached beside the video as `<name>.transcript.json`, so
-re-running with different thresholds costs no Whisper time. `--no-cache` forces
-a fresh transcription. Changing `--model` invalidates the cache automatically.
+Transcripts are cached in `~/.auto-editor/transcripts/`, keyed on the file's
+**contents** rather than its path — so the same recording is recognised
+wherever it sits, including after the app copies an upload into a fresh job
+folder. Re-running with different thresholds, or a different script split,
+costs no Whisper time.
+
+The settings are part of the filename too, so transcripts for different
+models coexist instead of overwriting each other every time you switch.
+`--no-cache` forces a fresh transcription.
 
 ## Possible hidden false starts
 
