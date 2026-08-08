@@ -190,8 +190,13 @@ async function poll() {
   // reads as a hang - which is the exact thing the progress bar exists to
   // prevent. Name what is actually happening instead.
   const loadingModel = state.state === "transcribing" && state.progress === 0;
-  $("stage").textContent = loadingModel
-    ? "Loading the speech model…"
+  // Transcription is serial, so a job can wait behind another one. Saying only
+  // "Queued" gives no way to tell a busy queue from a wedged server.
+  const queuedBehind = state.state === "queued" && state.waiting > 1;
+
+  $("stage").textContent =
+    queuedBehind ? `Queued — ${state.waiting - 1} job(s) ahead of this one`
+    : loadingModel ? "Loading the speech model…"
     : STAGE_TEXT[state.state] || state.state;
 
   $("bar-fill").classList.toggle("indeterminate", loadingModel);

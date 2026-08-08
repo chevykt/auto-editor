@@ -215,6 +215,15 @@ class Worker:
     def submit(self, fn) -> None:
         self._queue.put(fn)
 
+    def waiting(self) -> int:
+        """How many jobs are queued but not yet started.
+
+        Transcription is serial, so a job can sit at "queued" for a long time
+        through no fault of its own. Without this the UI just says "Queued"
+        forever and there is no way to tell a busy queue from a wedged one.
+        """
+        return self._queue.qsize()
+
     def join(self) -> None:
         """Block until the queue drains. For tests."""
         self._queue.join()
