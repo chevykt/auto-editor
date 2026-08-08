@@ -56,6 +56,50 @@ function refreshStart() {
   $("analyse").disabled = !(file && $("script").value.trim());
 }
 
+function failStart(message) {
+  $("start-error").textContent = message;
+  show("start-error");
+  hide("working");
+  show("start");
+  $("analyse").disabled = false;
+}
+
+/**
+ * Upload via XHR rather than fetch, purely for upload progress.
+ * fetch cannot report it, and a 124 MB file otherwise leaves the page looking
+ * dead for as long as the transfer takes.
+ */
+function upload(body, onProgress) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/jobs");
+
+    request.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    });
+
+    // A network error - server down, connection dropped - fires onerror, not a
+    // response. Without this the click handler died silently and the page just
+    // sat there, which is what "nothing happened" looks like.
+    request.addEventListener("error", () =>
+      reject(new Error("can't reach the server — is `python -m web` still running?")));
+    request.addEventListener("abort", () =>
+      reject(new Error("upload cancelled")));
+
+    request.addEventListener("load", () => {
+      let payload = {};
+      try {
+        payload = JSON.parse(request.responseText);
+      } catch { /* a non-JSON body means the server errored badly */ }
+
+      if (request.status >= 200 && request.status < 300) resolve(payload);
+      else reject(new Error(payload.detail || `upload failed (${request.status})`));
+    });
+
+    request.send(body);
+  });
+}
+
 $("analyse").addEventListener("click", async () => {
   $("analyse").disabled = true;
   hide("start-error");
@@ -64,18 +108,25 @@ $("analyse").addEventListener("click", async () => {
   body.append("video", file);
   body.append("script", $("script").value);
 
-  const response = await fetch("/api/jobs", { method: "POST", body });
-  if (!response.ok) {
-    const detail = (await response.json()).detail || "upload failed";
-    $("start-error").textContent = detail;
-    show("start-error");
-    $("analyse").disabled = false;
+  hide("start");
+  show("working");
+  $("stage").textContent = "Uploading";
+  $("bar-fill").classList.remove("indeterminate");
+  $("bar-fill").style.width = "0%";
+
+  try {
+    const created = await upload(body, (fraction) => {
+      $("stage").textContent = `Uploading ${Math.round(fraction * 100)}%`;
+      $("bar-fill").style.width = `${Math.round(fraction * 100)}%`;
+    });
+    job = created.id;
+  } catch (err) {
+    failStart(err.message);
     return;
   }
 
-  job = (await response.json()).id;
-  hide("start");
-  show("working");
+  $("stage").textContent = "Queued";
+  $("bar-fill").style.width = "0%";
   poll();
 });
 
@@ -90,15 +141,22 @@ const STAGE_TEXT = {
 };
 
 async function poll() {
-  const state = await (await fetch(`/api/jobs/${job}`)).json();
+  let state;
+  try {
+    const response = await fetch(`/api/jobs/${job}`);
+    if (!response.ok) throw new Error(`server said ${response.status}`);
+    state = await response.json();
+  } catch {
+    // Losing the server mid-job used to throw out of the handler and leave the
+    // page frozen on whatever it last showed.
+    hide("review");
+    failStart("lost contact with the server — is `python -m web` still running?");
+    return;
+  }
 
   if (state.state === "failed") {
-    hide("working");
     hide("review");
-    show("start");
-    $("start-error").textContent = state.error;
-    show("start-error");
-    $("analyse").disabled = false;
+    failStart(state.error);
     return;
   }
 
@@ -275,14 +333,16 @@ $("render").addEventListener("click", async () => {
   $("render").disabled = true;
   hide("review-error");
 
-  const response = await fetch(`/api/jobs/${job}/render`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cuts: [...applied] }),
-  });
-
-  if (!response.ok) {
-    $("review-error").textContent = (await response.json()).detail;
+  try {
+    const response = await fetch(`/api/jobs/${job}/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cuts: [...applied] }),
+    });
+    if (!response.ok) throw new Error((await response.json()).detail);
+  } catch (err) {
+    $("review-error").textContent =
+      err.message || "can't reach the server — is `python -m web` still running?";
     show("review-error");
     $("render").disabled = false;
     return;
