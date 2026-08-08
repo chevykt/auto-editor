@@ -40,21 +40,6 @@ class EditorConfig:
     min_fragment_chars: int = 3
     min_restart_growth: int = 3     # full word must exceed fragment by this many chars
 
-    # Repeats Whisper collapsed into one token, found from the audio because
-    # by definition the transcript no longer shows them. OFF by default: it
-    # finds the real thing, but on the one real recording available it also
-    # flagged six ordinary words, removing 2.6s of speech to recover a 70ms
-    # stutter. That is the wrong side of this tool's bias. Opt in with
-    # --intraword and check the report before rendering.
-    intraword_repeats: bool = False
-    intraword_min_gap_ms: int = 120
-    intraword_max_cut_s: float = 1.0
-    # Speech required either side of the gap. Whisper tokens overhang the
-    # following pause, so without this a word ending a phrase reads as a
-    # stutter.
-    intraword_flank_ms: int = 40
-    intraword_frame_ms: int = 10
-
     # Reorder mode: rebuild from matched windows in script order
     reorder: bool = False
     # Reorder cuts at word boundaries rather than into silence, so segments

@@ -15,8 +15,7 @@ def fake_transcribe(words, duration):
 
 
 def fake_analyse(report):
-    def _fn(words, script, duration, cfg, video, split_sentences=False,
-            video_path=None):
+    def _fn(words, script, duration, cfg, video, split_sentences=False):
         return report
     return _fn
 
@@ -71,8 +70,7 @@ def test_monkeypatching_the_module_level_transcribe_takes_effect(tmp_path,
         lambda video, cfg, on_progress=None: ([Word("stub", 0.0, 0.2)], 10.0))
     monkeypatch.setattr(
         "web.jobs.analyse",
-        lambda words, script, duration, cfg, video, split_sentences=False,
-               video_path=None: REPORT)
+        lambda words, script, duration, cfg, video, split_sentences=False: REPORT)
 
     store = JobStore(tmp_path)
     job = store.create("raw.mp4", "hello")

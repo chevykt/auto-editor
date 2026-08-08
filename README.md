@@ -293,14 +293,18 @@ long recordings — exactly the ones this tool exists for.
   0.40s. A duration heuristic would cut ordinary words first and pick the
   wrong `"the"` half the time. Checked and rejected on the numbers.
 
-  There is an experimental `--intraword` pass that looks at the audio
-  instead. Whisper merges the pair rather than dropping one, so the token's
-  timestamps still span both attempts with a real silence between them - on
-  the test recording, 70ms of speech, 150ms of quiet, then the second `the`.
-  It does find that. It also flagged six ordinary words on the same
-  recording, removing 2.6s of speech to recover a 70ms stutter, so it is
-  **off by default**. Turn it on with `--intraword` and read the report
-  before rendering.
+  An audio-level pass was built and removed. Whisper merges the pair rather
+  than dropping one, so the token's timestamps still span both attempts with
+  real silence between them - 70ms of speech, 150ms of quiet, then the second
+  `the`. A detector reading the waveform does find that. It also flagged five
+  ordinary words on the same recording, and the one true positive was itself
+  ruined: a spurious gap inside the neighbouring `from` produced an adjacent
+  cut which merged with the real one, removing `from` as well.
+
+  That last part is why it is gone rather than disabled. A false positive
+  beside a true positive does not merely add noise - it destroys the correct
+  cut by merging with it. No threshold fixes that. The code is in git history
+  if anyone wants to revisit it.
 
   What does survive is anything where the two tokens differ:
   `config → configuration` (truncated restart), a repeated *phrase*, and a
