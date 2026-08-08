@@ -130,7 +130,7 @@ def run_analysis(job: Job, cfg: EditorConfig,
 
         job.advance(JobState.ANALYSING)
         job.report = analyse_fn(words, job.script, duration, cfg,
-                                str(job.video), video_path=job.video)
+                                str(job.video))
         job.progress = 1.0
         job.advance(JobState.READY)
     except Exception as exc:                          # noqa: BLE001
