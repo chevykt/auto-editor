@@ -14,6 +14,7 @@ from models import Span, Word
 from reorder import reorder_segments
 from report import build_report, load_report, write_json, write_markdown
 from script_parser import parse_script
+from suspects import find_suspects, suspect_cuts
 from silence import detect_silence
 from transcribe import transcribe
 from xml_export import probe_video_meta, write_xml
@@ -203,6 +204,11 @@ def analyse(words: list[Word], script_text: str, duration: float,
     raw += disfluencies
 
     cuts = build_cutlist(raw, duration, cfg)
+
+    # Reported, never applied. Appended after build_cutlist so they cannot
+    # merge with a real cut and quietly become one.
+    cuts = cuts + suspect_cuts(find_suspects(words, cfg), words, cfg)
+    cuts.sort(key=lambda c: c.start)
 
     if cfg.reorder:
         # Reconstructive: keep only matched windows, in script order. Silence

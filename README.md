@@ -96,6 +96,30 @@ The transcript is cached beside the video as `<name>.transcript.json`, so
 re-running with different thresholds costs no Whisper time. `--no-cache` forces
 a fresh transcription. Changing `--model` invalidates the cache automatically.
 
+## Possible hidden false starts
+
+Whisper sometimes absorbs a discarded attempt into a single token. Say
+"and 80 to 2— and 80 to 120" and it can return one `and`, with timestamps
+spanning the whole fumble. The transcript shows nothing; the only trace is that
+the token ran 2.06s against a 0.32s median.
+
+Tokens that are extreme duration outliers are **flagged, never cut**. They
+appear in their own report section, and in the app as rows that arrive
+**unchecked** — play one, and tick it only if you hear a fumble.
+
+The threshold is 5x the median plus a 0.9s floor, which is deliberately
+conservative. On the recording with a known case the true positive ran 6.44x
+and the next candidate was 4.3x and innocent; 274 words produced exactly one
+flag, and it was correct. A milder false start will be missed, which is the
+right way round: the boundary offered is an *estimate* — everything up to about
+one word's width before the token ends, assuming the surviving attempt is the
+last — so approving one without listening is how you clip real speech.
+
+This replaced an earlier attempt that scanned the audio of every token for
+internal silence. That found real cases but produced six wrong cuts on the same
+recording, because most tokens aren't stutters and even a good test drowns in
+that base rate. Flagging only extreme outliers inverts it.
+
 ## Reading the report
 
 The Markdown report has three sections:

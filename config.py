@@ -40,6 +40,15 @@ class EditorConfig:
     min_fragment_chars: int = 3
     min_restart_growth: int = 3     # full word must exceed fragment by this many chars
 
+    # Tokens long enough to be hiding a false start Whisper absorbed.
+    # Flagged in the report, never cut unless approved. 5x is deliberately
+    # conservative: on the one recording with a known case the true
+    # positive ran 6.4x the median and the next candidate was 4.3x.
+    flag_suspects: bool = True
+    suspect_ratio: float = 5.0
+    suspect_min_duration_s: float = 0.9
+    suspect_min_words: int = 20
+
     # Reorder mode: rebuild from matched windows in script order
     reorder: bool = False
     # Reorder cuts at word boundaries rather than into silence, so segments
