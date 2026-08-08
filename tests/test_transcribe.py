@@ -81,15 +81,41 @@ def test_failure_on_the_last_attempt_is_raised(monkeypatch, tmp_path):
         _run_whisper(tmp_path / "v.mp4", EditorConfig(device="auto"))
 
 
-def test_cache_path_sits_beside_the_video(tmp_path):
+def test_the_same_bytes_hit_the_cache_from_any_location(tmp_path, monkeypatch):
+    """The web UI copies every upload into a fresh job folder.
+
+    A location-based cache never hit, so trying a different script split cost
+    a full re-transcription - minutes, for a change that touches no audio.
+    """
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
+
+    here = tmp_path / "a" / "raw.mp4"
+    there = tmp_path / "b" / "renamed.mp4"
+    for path in (here, there):
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"identical bytes")
+
+    assert cache_path_for(here) == cache_path_for(there)
+
+
+def test_different_bytes_get_different_cache_entries(tmp_path, monkeypatch):
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
+    one, two = tmp_path / "one.mp4", tmp_path / "two.mp4"
+    one.write_bytes(b"recording one")
+    two.write_bytes(b"recording two")
+    assert cache_path_for(one) != cache_path_for(two)
+
+
+def test_settings_appear_in_the_filename_so_models_coexist(tmp_path, monkeypatch):
+    """Switching model and back used to re-transcribe both times, because one
+    file per video meant each model overwrote the other."""
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
     video = tmp_path / "raw.mp4"
-    assert cache_path_for(video).name == "raw.transcript.json"
-    assert cache_path_for(video).parent == tmp_path
+    video.write_bytes(b"same recording")
 
-
-def test_cache_path_handles_dots_in_the_stem(tmp_path):
-    video = tmp_path / "take.2.final.mp4"
-    assert cache_path_for(video).name == "take.2.final.transcript.json"
+    small = cache_path_for(video, transcription_key(EditorConfig(model="small")))
+    medium = cache_path_for(video, transcription_key(EditorConfig(model="medium")))
+    assert small != medium
 
 
 def test_cache_round_trip(tmp_path):
@@ -213,6 +239,7 @@ def test_verbatim_run_does_not_reuse_a_plain_cache(tmp_path, monkeypatch):
     save_cache(cache_path_for(video), [Word("tidy", 0.0, 0.5)], 3.0,
                transcription_key(EditorConfig()))
 
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr("transcribe.probe_duration", lambda v: 3.0)
     monkeypatch.setattr(
         "transcribe._run_whisper",
@@ -224,10 +251,12 @@ def test_verbatim_run_does_not_reuse_a_plain_cache(tmp_path, monkeypatch):
 
 
 def test_transcribe_uses_cache_without_loading_the_model(tmp_path, monkeypatch):
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
     video = tmp_path / "raw.mp4"
-    video.write_bytes(b"")
+    video.write_bytes(b"some bytes")
     cfg = EditorConfig(model="medium")
-    save_cache(cache_path_for(video), [Word("cached", 0.0, 0.5)],
+    save_cache(cache_path_for(video, transcription_key(cfg)),
+               [Word("cached", 0.0, 0.5)],
                duration=3.0, key=transcription_key(cfg))
 
     def explode(*a, **k):
@@ -242,9 +271,11 @@ def test_transcribe_uses_cache_without_loading_the_model(tmp_path, monkeypatch):
 def test_no_cache_flag_forces_a_fresh_transcription(tmp_path, monkeypatch):
     video = tmp_path / "raw.mp4"
     video.write_bytes(b"")
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
     cfg = EditorConfig(model="medium", use_cache=False)
-    save_cache(cache_path_for(video), [Word("stale", 0.0, 0.5)],
-               duration=3.0, key=transcription_key(cfg))
+    save_cache(cache_path_for(video, transcription_key(cfg)),
+               [Word("stale", 0.0, 0.5)], duration=3.0,
+               key=transcription_key(cfg))
 
     monkeypatch.setattr("transcribe.probe_duration", lambda v: 9.0)
     monkeypatch.setattr("transcribe._run_whisper",
@@ -254,7 +285,7 @@ def test_no_cache_flag_forces_a_fresh_transcription(tmp_path, monkeypatch):
     assert [w.text for w in ws] == ["fresh"]
     assert duration == 9.0
     # the fresh result must overwrite the stale cache
-    assert load_cached(cache_path_for(video),
+    assert load_cached(cache_path_for(video, transcription_key(cfg)),
                        transcription_key(cfg))[0][0].text == "fresh"
 
 
@@ -321,11 +352,12 @@ def test_progress_never_exceeds_one(monkeypatch, tmp_path):
 
 def test_a_cache_hit_reports_complete_without_loading_a_model(tmp_path,
                                                               monkeypatch):
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
     video = tmp_path / "raw.mp4"
-    video.write_bytes(b"")
+    video.write_bytes(b"bytes")
     cfg = EditorConfig()
-    save_cache(cache_path_for(video), [Word("hi", 0.0, 0.2)], 3.0,
-               transcription_key(cfg))
+    save_cache(cache_path_for(video, transcription_key(cfg)),
+               [Word("hi", 0.0, 0.2)], 3.0, transcription_key(cfg))
 
     def explode(*a, **k):
         raise AssertionError("must not load a model on a cache hit")
@@ -338,11 +370,12 @@ def test_a_cache_hit_reports_complete_without_loading_a_model(tmp_path,
 
 
 def test_omitting_the_callback_keeps_current_behaviour(tmp_path, monkeypatch):
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
     video = tmp_path / "raw.mp4"
-    video.write_bytes(b"")
+    video.write_bytes(b"bytes")
     cfg = EditorConfig()
-    save_cache(cache_path_for(video), [Word("hi", 0.0, 0.2)], 3.0,
-               transcription_key(cfg))
+    save_cache(cache_path_for(video, transcription_key(cfg)),
+               [Word("hi", 0.0, 0.2)], 3.0, transcription_key(cfg))
     ws, duration = transcribe(video, cfg)
     assert [w.text for w in ws] == ["hi"]
     assert duration == 3.0

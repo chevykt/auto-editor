@@ -55,6 +55,23 @@ def spoken_transcript() -> list[Word]:
             + run("thats everything you need to know", 12.0))
 
 
+def seed(video: Path) -> None:
+    """Pre-seed the transcript so the suite never downloads a speech model.
+
+    Must use the same path transcribe() will look up - content hash plus the
+    settings key - or the seed is silently ignored and Whisper actually runs.
+    """
+    cfg = EditorConfig()
+    save_cache(cache_path_for(video, transcription_key(cfg)),
+               spoken_transcript(), 20.0, transcription_key(cfg))
+
+
+@pytest.fixture(autouse=True)
+def isolated_cache(tmp_path, monkeypatch):
+    """Never write into the developer's real transcript cache."""
+    monkeypatch.setattr("transcribe.CACHE_DIR", tmp_path / "cache")
+
+
 @pytest.fixture
 def project(tmp_path: Path) -> tuple[Path, Path]:
     """A 20-second clip plus a script, with the transcript cache pre-seeded."""
@@ -68,8 +85,7 @@ def project(tmp_path: Path) -> tuple[Path, Path]:
 
     script = tmp_path / "script.txt"
     script.write_text(SCRIPT, encoding="utf-8")
-    save_cache(cache_path_for(video), spoken_transcript(), 20.0,
-               transcription_key(EditorConfig()))
+    seed(video)
     return video, script
 
 
@@ -227,8 +243,7 @@ def test_batch_processes_every_pair_and_reports_orphans(project, tmp_path,
     for name in ("lesson_a", "lesson_b"):
         shutil.copy(video, work / f"{name}.mp4")
         shutil.copy(script, work / f"{name}.txt")
-        save_cache(cache_path_for(work / f"{name}.mp4"), spoken_transcript(),
-                   20.0, transcription_key(EditorConfig()))
+        seed(work / f"{name}.mp4")
     shutil.copy(video, work / "orphan.mp4")
 
     assert main(["--batch", str(work)]) == 0
@@ -253,8 +268,7 @@ def test_batch_renders_one_output_per_recording_into_out_dir(project, tmp_path):
     for name in ("one", "two"):
         shutil.copy(video, work / f"{name}.mp4")
         shutil.copy(script, work / f"{name}.txt")
-        save_cache(cache_path_for(work / f"{name}.mp4"), spoken_transcript(),
-                   20.0, transcription_key(EditorConfig()))
+        seed(work / f"{name}.mp4")
 
     assert main(["--batch", str(work), "--out-dir", str(edited), "--auto"]) == 0
 
@@ -277,8 +291,7 @@ def test_batch_survives_one_bad_recording(project, tmp_path, capsys):
 
     shutil.copy(video, work / "good.mp4")
     shutil.copy(script, work / "good.txt")
-    save_cache(cache_path_for(work / "good.mp4"), spoken_transcript(), 20.0,
-               transcription_key(EditorConfig()))
+    seed(work / "good.mp4")
 
     (work / "broken.mp4").write_bytes(b"not a video")
     shutil.copy(script, work / "broken.txt")

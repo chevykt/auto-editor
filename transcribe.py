@@ -57,14 +57,48 @@ def transcription_key(cfg: EditorConfig) -> str:
     return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
-def cache_path_for(video: str | Path) -> Path:
-    video = Path(video)
-    return video.with_name(video.stem + ".transcript.json")
+# Transcripts live here rather than beside the video. Module-level so tests can
+# point it somewhere temporary instead of polluting a real cache.
+CACHE_DIR = Path.home() / ".auto-editor" / "transcripts"
+
+_HASH_CHUNK = 1024 * 1024
+
+
+def content_hash(video: str | Path) -> str:
+    """Identity of a recording by its BYTES, not its path.
+
+    The web UI copies every upload into a fresh job folder, so a
+    location-based cache never hit and each re-run cost a full transcription -
+    minutes, to try a different script split. Hashing means the same recording
+    is recognised wherever it sits.
+
+    Reading 124MB costs a fraction of a second against the minutes a
+    re-transcription costs, so the whole file is hashed rather than sampled.
+    """
+    digest = hashlib.sha256()
+    with open(video, "rb") as handle:
+        for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:16]
+
+
+def cache_path_for(video: str | Path, key: str | None = None) -> Path:
+    """Where this recording's transcript lives, for these settings.
+
+    The settings key is in the FILENAME, not just the contents, so transcripts
+    for different models coexist instead of overwriting each other every time
+    you switch.
+    """
+    name = content_hash(video)
+    if key:
+        name = f"{name}.{key}"
+    return CACHE_DIR / f"{name}.transcript.json"
 
 
 def save_cache(path: str | Path, words: list[Word], duration: float,
                key: str) -> Path:
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "version": CACHE_VERSION,
         "key": key,
@@ -179,8 +213,8 @@ def transcribe(video: str | Path, cfg: EditorConfig,
     A cache hit reports 1.0 once and loads no model.
     """
     video = Path(video)
-    cache = cache_path_for(video)
     key = transcription_key(cfg)
+    cache = cache_path_for(video, key)
 
     if cfg.use_cache:
         words, duration = load_cached(cache, key)
