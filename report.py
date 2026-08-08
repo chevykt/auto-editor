@@ -12,7 +12,7 @@ from pathlib import Path
 
 from config import EditorConfig
 from cutlist import keep_segments
-from models import CutSpan, LineMatch, ScriptLine, Span, Word
+from models import CutReason, CutSpan, LineMatch, ScriptLine, Span, Word
 
 
 def _adlib_spans(matches: list[LineMatch], cuts: list[CutSpan],
@@ -59,7 +59,11 @@ def build_report(lines: list[ScriptLine], matches: list[LineMatch],
     say about unmatched content, which one mode keeps and the other discards.
     """
     if segments is None:
-        segments = keep_segments(cuts, duration)
+        # Suspects are reported, not applied. They sit in "cuts" so the review
+        # screen can address them by index, but they must not shorten anything
+        # until someone approves them.
+        applied = [c for c in cuts if CutReason.SUSPECT not in c.reasons]
+        segments = keep_segments(applied, duration)
 
     # Derived from the segments rather than summed from the cuts, so the number
     # is right in both modes. In reorder mode the segments are not a complement
@@ -163,7 +167,9 @@ def render_markdown(report: dict) -> str:
                    f"{_ts(line['start'])} | {text} |")
 
     silence = [c for c in report["cuts"] if c["reasons"] == ["silence"]]
-    judged = [c for c in report["cuts"] if c["reasons"] != ["silence"]]
+    suspects = [c for c in report["cuts"] if "suspect" in c["reasons"]]
+    judged = [c for c in report["cuts"]
+              if c["reasons"] != ["silence"] and "suspect" not in c["reasons"]]
 
     out += [
         "",
@@ -183,6 +189,19 @@ def render_markdown(report: dict) -> str:
                    f"{', '.join(c['reasons'])} | {c['detail']} |")
     if not judged:
         out.append("| _none_ | | | |")
+
+    if suspects:
+        out += ["", "## Possible hidden false starts", "",
+                "Not cut. These tokens are long enough that Whisper may have "
+                "absorbed a discarded attempt into them - the transcript shows "
+                "one word, the timestamps span two. Listen before approving; the "
+                "boundary is estimated, not measured.",
+                "",
+                "| Time | Token spans | Would remove | Detail |",
+                "|---|---|---|---|"]
+        for c in suspects:
+            out.append(f"| {_ts(c['start'])} | see detail | "
+                       f"{c['duration']:.2f}s | {c['detail']} |")
 
     if reordering:
         out += ["", "## Discarded (not in the script)", "",

@@ -16,9 +16,12 @@ const ts = (s) => {
 // A merged span can carry several reasons. Retake outranks disfluency, which
 // outranks silence, so the badge names the most consequential thing in it.
 const reasonOf = (cut) =>
-  cut.reasons.includes("retake_loser") ? "retake"
+  cut.reasons.includes("suspect") ? "suspect"
+  : cut.reasons.includes("retake_loser") ? "retake"
   : cut.reasons.includes("disfluency") ? "disfluency"
   : "silence";
+
+const isSuspect = (cut) => cut.reasons.includes("suspect");
 
 const text = (value) => {
   const node = document.createElement("span");
@@ -162,7 +165,10 @@ async function poll() {
 
   if (state.state === "ready") {
     report = state.report;
-    applied = new Set(report.cuts.map((_, i) => i));
+    // Suspects are reported, not applied. They arrive unchecked so a guess
+    // about a hidden false start can never silently remove real speech.
+    applied = new Set(
+      report.cuts.map((c, i) => (isSuspect(c) ? null : i)).filter((i) => i !== null));
     hide("working");
     drawReview();
     show("review");
@@ -241,7 +247,12 @@ function drawTimeline() {
 function drawCuts() {
   const judged = report.cuts
     .map((cut, index) => ({ cut, index }))
-    .filter(({ cut }) => reasonOf(cut) !== "silence");
+    .filter(({ cut }) => reasonOf(cut) !== "silence" && !isSuspect(cut));
+
+  const suspects = report.cuts
+    .map((cut, index) => ({ cut, index }))
+    .filter(({ cut }) => isSuspect(cut));
+  drawSuspects(suspects);
 
   const silence = report.cuts.filter((c) => reasonOf(c) === "silence");
   const total = silence.reduce((s, c) => s + (c.end - c.start), 0);
@@ -370,3 +381,53 @@ $("xml").addEventListener("click", async () => {
 });
 
 $("again").addEventListener("click", () => location.reload());
+
+/**
+ * Suspects: tokens long enough that Whisper may have absorbed a discarded
+ * attempt. Rendered unchecked, because the boundary is an estimate and a wrong
+ * guess here removes real speech.
+ */
+function drawSuspects(entries) {
+  const host = $("suspects");
+  if (!host) return;
+
+  host.innerHTML = "";
+  if (!entries.length) {
+    host.innerHTML = '<p class="empty">None.</p>';
+    return;
+  }
+
+  entries.forEach(({ cut, index }) => {
+    const row = document.createElement("div");
+    row.className = "row off";
+
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = false;
+    box.setAttribute("aria-label", `remove suspected false start at ${ts(cut.start)}`);
+    box.addEventListener("change", () => {
+      if (box.checked) applied.add(index); else applied.delete(index);
+      row.classList.toggle("off", !box.checked);
+      drawTimeline();
+      refreshTotals();
+    });
+
+    const play = document.createElement("button");
+    play.className = "play";
+    play.textContent = "▶";
+    play.title = "Play this moment";
+    play.addEventListener("click", () => {
+      const player = $("player");
+      player.currentTime = Math.max(0, cut.start - 1.5);
+      player.play();
+    });
+
+    row.innerHTML =
+      `<span class="time">${ts(cut.start)}</span>` +
+      `<span class="badge suspect">suspect</span>` +
+      `<span class="detail">${text(cut.detail)}</span>`;
+    row.prepend(box);
+    row.appendChild(play);
+    host.appendChild(row);
+  });
+}

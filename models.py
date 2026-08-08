@@ -38,6 +38,8 @@ class CutReason(str, Enum):
     SILENCE = "silence"
     RETAKE_LOSER = "retake_loser"
     DISFLUENCY = "disfluency"
+    # Reported, never applied unless approved. See suspects.py.
+    SUSPECT = "suspect"
 
 
 @dataclass
