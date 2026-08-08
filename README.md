@@ -50,6 +50,9 @@ python -m web
 Opens at `http://127.0.0.1:8000`. Everything stays on your machine — nothing is
 uploaded anywhere, and the server binds to localhost only.
 
+Leave that terminal open. If you close it, an already-open tab will report
+that it can't reach the server rather than appearing to do nothing.
+
 The review screen is the point. After analysis you get the source video, a
 timeline coloured by what happens to each span, and every judgment-call cut as a
 row you can play and uncheck. Silence is summarised rather than listed, since it
