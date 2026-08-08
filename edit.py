@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from batch import find_jobs, output_path
 from config import EditorConfig, load_config_file
 from cutlist import build_cutlist
 from disfluency import detect_disfluencies
+from intraword import (audio_envelope, detect_collapsed_repeats,
+                       find_gaps)
 from models import Span, Word
 from reorder import reorder_segments
 from report import build_report, load_report, write_json, write_markdown
@@ -76,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--split-sentences", action="store_true")
     p.add_argument("--no-clean-stutters", action="store_true",
                    help="Disable disfluency detection entirely")
+    p.add_argument("--intraword", action="store_true",
+                   help="EXPERIMENTAL: audio pass for repeats Whisper "
+                        "collapsed into one token. Finds real ones but also "
+                        "false-positives on ordinary words; check the report")
     p.add_argument("--no-cache", action="store_true",
                    help="Ignore any cached transcript")
 
@@ -106,6 +113,7 @@ def config_from_args(args: argparse.Namespace) -> EditorConfig:
         duplicate_window_s=args.duplicate_window_s,
         max_disfluency_words=args.max_disfluency_words,
         clean_stutters=not args.no_clean_stutters,
+        intraword_repeats=args.intraword,
         model=args.model,
         language=args.language,
         use_cache=not args.no_cache,
@@ -186,8 +194,14 @@ def report_paths(video: Path,
 
 def analyse(words: list[Word], script_text: str, duration: float,
             cfg: EditorConfig, video: str,
-            split_sentences: bool = False) -> dict:
-    """The whole of phase 1: transcript + script in, review report out."""
+            split_sentences: bool = False,
+            video_path: Path | None = None) -> dict:
+    """The whole of phase 1: transcript + script in, review report out.
+
+    video_path opts into the intra-word audio pass, which is the only stage
+    that reads media. Left None (the default) everything stays a pure function
+    over the word list, which is what keeps this testable without ffmpeg.
+    """
     lines = parse_script(script_text, split_sentences=split_sentences)
 
     raw = detect_silence(words, cfg, duration=duration)
@@ -199,6 +213,18 @@ def analyse(words: list[Word], script_text: str, duration: float,
         if m.word_range:
             disfluencies += detect_disfluencies(
                 words, m.word_range[0], m.word_range[1], cfg)
+
+    # Repeats Whisper collapsed into a single token are invisible to every
+    # detector above, because by then the transcript shows one word. Found from
+    # the audio instead. Optional: without a readable video the rest still runs.
+    if cfg.intraword_repeats and video_path is not None:
+        try:
+            envelope = audio_envelope(video_path, cfg.intraword_frame_ms)
+            gaps = find_gaps(envelope, words, cfg)
+            disfluencies += detect_collapsed_repeats(words, gaps, cfg)
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+            print(f"  intra-word pass skipped: {exc}", file=sys.stderr)
+
     raw += disfluencies
 
     cuts = build_cutlist(raw, duration, cfg)
@@ -249,7 +275,8 @@ def run_job(video: Path, script: Path | None, args: argparse.Namespace,
         print(f"  {len(words)} words, {duration:.1f}s", file=sys.stderr)
 
         report = analyse(words, script_text, duration, cfg, str(video),
-                         split_sentences=args.split_sentences)
+                         split_sentences=args.split_sentences,
+                         video_path=video)
 
         json_path, md_path, _ = report_paths(video, report_stem)
         write_json(report, json_path)
