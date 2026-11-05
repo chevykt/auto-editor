@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Fixture</title></head>
+<body style="margin:40px;font:20px sans-serif">
+  <button id="new">New project</button>
+  <p><label for="name">Name</label> <input id="name"></p>
+  <button id="pay">Confirm payment</button>
+  <p id="email">someone@example.com</p>
+  <div id="late-host"></div>
+  <script>
+    window.__clicks = [];
+    document.addEventListener("click", (e) => window.__clicks.push(e.target.id));
+    setTimeout(() => {
+      const p = document.createElement("p");
+      p.id = "late";
+      p.textContent = "Ready";
+      document.getElementById("late-host").append(p);
+    }, 2000);
+  </script>
+</body>
+</html>
