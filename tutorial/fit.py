@@ -20,6 +20,7 @@ from tutorial.voice import VoiceTiming
 MAX_SPEED = 2.0
 KEEP_OF_WAIT_S = 0.2        # a cut wait still shows its start, so the load is seen
 _WAIT_KINDS = ("wait_for", "pause", "goto")
+OPENING_WORD_S = 0.05       # an anchor this close to the last fixed point needs no pin
 
 
 class FitError(ValueError):
@@ -113,6 +114,8 @@ def fit_all(events: list[StepEvent], t0: float, timing: VoiceTiming,
             previous = marks[-1] if marks else (span[0], window[0])
             if previous[0] < done < span[1] and previous[1] < said < window[1]:
                 marks.append((done, said))
+            elif abs(said - previous[1]) < OPENING_WORD_S:
+                pass        # the word opens the beat; the step already starts with it
             else:
                 warnings.append(f"beat {b + 1}, step {e.step + 1}: its word is said "
                                 "outside where this step can happen, so it is not "

@@ -21,6 +21,8 @@ venv/
 
 # tutorial recorder output
 tutorial-out/
+*.script.txt
+*.voice-report.md
 
 # uploaded video and per-job working files
 web/work/

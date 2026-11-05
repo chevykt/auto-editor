@@ -112,6 +112,16 @@ def test_an_anchor_outside_its_beat_is_dropped_with_a_warning():
     assert len(warnings) == 1 and "beat 1, step 1" in warnings[0]
 
 
+def test_an_anchor_on_the_beats_first_words_is_not_a_warning():
+    """'Scroll down to step three…' anchored on 'Scroll down': the word opens the
+    beat, so the step already starts with it - nothing to pin, nothing to warn."""
+    plan = plan_of([ANCHORED])
+    events = [ev(0, 0, "scroll", 0.0, 0.01, 0.8)]
+    pieces, warnings = fit_all(events, T0, VoiceTiming(3.0, ((0, 3),), {(0, 0): 0.0}), plan)
+    assert warnings == []
+    assert total(pieces) == pytest.approx(3.0)
+
+
 def test_a_fit_error_names_the_beat():
     plan = plan_of([CLICK], [CLICK])
     events = [ev(0, 0, "click", 0.0, 0.5, 0.6), ev(1, 0, "click", 1.2, 1.7, 12.0)]
