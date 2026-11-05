@@ -27,8 +27,11 @@ steps = [
 
 [[beat]]
 say = "Every command has a copy button, so you can paste it straight into your terminal."
+# The copy button only appears while the mouse is over its block, so the
+# cursor goes to the command first, then to that block's own button.
 steps = [
-  { hover = "main pre", at = "copy button" },
+  { hover = "main pre:has-text('create-next-app')", at = "Every command" },
+  { hover = "xpath=//pre[contains(., 'create-next-app')]/ancestor::div[.//button[@aria-label='Copy code']][1]//button[@aria-label='Copy code']", at = "copy button" },
 ]
 
 [[beat]]
