@@ -21,6 +21,13 @@ def test_concat_list_gives_each_frame_its_own_duration(tmp_path):
         f"file '{c.as_posix()}'"]
 
 
+def test_concat_list_paths_are_absolute(tmp_path, monkeypatch):
+    """ffmpeg reads relative entries against the list file's own folder."""
+    monkeypatch.chdir(tmp_path)
+    line = concat_lines([(1.0, Path("out/frames/000000.png"))], end=2.0)[0]
+    assert line == f"file '{(tmp_path / 'out/frames/000000.png').as_posix()}'"
+
+
 def test_concat_list_needs_a_frame():
     with pytest.raises(ValueError, match="no frames"):
         concat_lines([], end=1.0)

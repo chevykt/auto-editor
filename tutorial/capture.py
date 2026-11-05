@@ -30,11 +30,13 @@ def concat_lines(frames: list[tuple[float, Path]], end: float) -> list[str]:
     """
     if not frames:
         raise ValueError("no frames were captured")
+    # absolute, because ffmpeg resolves relative entries against the list's folder
+    name = lambda path: f"file '{path.resolve().as_posix()}'"
     lines: list[str] = []
     for i, (t, path) in enumerate(frames):
         until = frames[i + 1][0] if i + 1 < len(frames) else end
-        lines += [f"file '{path.as_posix()}'", f"duration {round(until - t, 6):g}"]
-    lines.append(f"file '{frames[-1][1].as_posix()}'")
+        lines += [name(path), f"duration {round(until - t, 6):g}"]
+    lines.append(name(frames[-1][1]))
     return lines
 
 

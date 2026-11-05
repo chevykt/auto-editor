@@ -19,5 +19,8 @@ venv/
 # build ledgers
 .superpowers/
 
+# tutorial recorder output
+tutorial-out/
+
 # uploaded video and per-job working files
 web/work/
