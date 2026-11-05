@@ -96,6 +96,38 @@ def test_cleanup_runs_even_when_the_recording_fails(plan, stubbed, capsys):
     assert "capture broke" in capsys.readouterr().err
 
 
+def test_a_site_that_fails_to_load_is_a_message_not_a_traceback(plan, stubbed,
+                                                                monkeypatch, capsys):
+    from playwright.sync_api import Error as PlaywrightError
+
+    def down(page, plan):
+        raise PlaywrightError("net::ERR_NAME_NOT_RESOLVED")
+
+    monkeypatch.setattr(cli, "start", down)
+    assert cli.main(["check", str(plan)]) == 1
+    assert "ERR_NAME_NOT_RESOLVED" in capsys.readouterr().err
+
+
+def test_check_reports_the_real_failure_when_cleanup_also_fails(plan, stubbed,
+                                                               monkeypatch, capsys):
+    from tutorial.runner import StepFailed
+
+    def steps(page, plan, steps, shots):
+        side = "cleanup" if steps and steps[0][0] == -1 and steps[0][2].kind == "click" \
+            else "beat"
+        if steps and steps[0][0] >= 0:
+            raise StepFailed(0, 0, shots / "x.png", "New project not found")
+        if side == "cleanup":
+            raise StepFailed(-1, 0, shots / "y.png", "Delete not found")
+        return []
+
+    monkeypatch.setattr(cli, "run_steps", steps)
+    assert cli.main(["check", str(plan)]) == 1
+    err = capsys.readouterr().err
+    assert "New project not found" in err
+    assert "Delete not found" in err
+
+
 def test_a_bad_read_stops_before_the_browser_opens(plan, stubbed, monkeypatch, capsys):
     ran, voice = stubbed
     from tutorial.voice import VoiceError

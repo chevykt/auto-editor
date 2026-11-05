@@ -11,6 +11,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
+
 from config import EditorConfig
 from report import write_markdown
 from tutorial.assemble import assemble, write_timeline
@@ -22,8 +24,9 @@ from tutorial.runner import (BlockedAction, SessionExpired, StepFailed, open_bro
 from tutorial.voice import VoiceError, clean_voiceover
 
 OUT_ROOT = Path("tutorial-out")
+# PlaywrightError covers a site that will not load at all, before any step runs
 _RUN_ERRORS = (StepFailed, BlockedAction, SessionExpired, FitError, VoiceError,
-               RuntimeError)
+               RuntimeError, PlaywrightError)
 
 
 def _beat_steps(plan: Plan) -> list:
@@ -50,8 +53,14 @@ def _check(plan: Plan, out: Path) -> int:
         try:
             run_steps(page, plan, _side_steps(plan.setup), shots)
             run_steps(page, plan, _beat_steps(plan), shots)
-        finally:
-            run_steps(page, plan, _side_steps(plan.cleanup), shots)
+        except _RUN_ERRORS as failure:
+            # cleanup still runs, but its own failure must not hide this one
+            try:
+                run_steps(page, plan, _side_steps(plan.cleanup), shots)
+            except _RUN_ERRORS as also:
+                raise RuntimeError(f"{failure}\nand cleanup failed too: {also}") from failure
+            raise
+        run_steps(page, plan, _side_steps(plan.cleanup), shots)
     print("ok")
     return 0
 
