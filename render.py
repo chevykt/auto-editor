@@ -20,8 +20,12 @@ from config import EditorConfig
 from models import Span
 
 
-def build_filter_graph(segments: list[Span], cfg: EditorConfig) -> str:
-    """filter_complex graph selecting and concatenating the surviving segments."""
+def build_filter_graph(segments: list[Span], cfg: EditorConfig,
+                       video: bool = True) -> str:
+    """filter_complex graph selecting and concatenating the surviving segments.
+
+    video=False builds the audio half only, for a voiceover with no picture.
+    """
     if not segments:
         raise ValueError("cannot render: no surviving segments")
 
@@ -29,9 +33,10 @@ def build_filter_graph(segments: list[Span], cfg: EditorConfig) -> str:
     parts: list[str] = []
 
     for i, seg in enumerate(segments):
-        parts.append(
-            f"[0:v]trim=start={seg.start:.6f}:end={seg.end:.6f},"
-            f"setpts=PTS-STARTPTS[v{i}]")
+        if video:
+            parts.append(
+                f"[0:v]trim=start={seg.start:.6f}:end={seg.end:.6f},"
+                f"setpts=PTS-STARTPTS[v{i}]")
 
         achain = (f"[0:a]atrim=start={seg.start:.6f}:end={seg.end:.6f},"
                   f"asetpts=PTS-STARTPTS")
@@ -42,8 +47,13 @@ def build_filter_graph(segments: list[Span], cfg: EditorConfig) -> str:
                        f",afade=t=out:st={out_at:g}:d={fade:g}")
         parts.append(f"{achain}[a{i}]")
 
-    streams = "".join(f"[v{i}][a{i}]" for i in range(len(segments)))
-    parts.append(f"{streams}concat=n={len(segments)}:v=1:a=1[outv][outa]")
+    n = len(segments)
+    if video:
+        streams = "".join(f"[v{i}][a{i}]" for i in range(n))
+        parts.append(f"{streams}concat=n={n}:v=1:a=1[outv][outa]")
+    else:
+        streams = "".join(f"[a{i}]" for i in range(n))
+        parts.append(f"{streams}concat=n={n}:v=0:a=1[outa]")
     return ";\n".join(parts)
 
 
@@ -83,16 +93,36 @@ def render_video(video: str | Path, out: str | Path, report: dict,
         raise RuntimeError(
             "ffmpeg not found on PATH. Install it: winget install Gyan.FFmpeg")
 
-    graph = build_filter_graph(segments, cfg)
+    run_with_graph(build_filter_graph(segments, cfg), Path(out).stem,
+                   lambda graph_path: build_ffmpeg_command(video, out, graph_path, cfg))
+    return Path(out)
 
-    tmp = Path(tempfile.gettempdir()) / f"auto_editor_graph_{Path(out).stem}.txt"
+
+def render_audio(src: str | Path, out: str | Path, segments: list[Span],
+                 cfg: EditorConfig) -> Path:
+    """The kept segments of an audio file, joined, as a 16-bit WAV."""
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError(
+            "ffmpeg not found on PATH. Install it: winget install Gyan.FFmpeg")
+    run_with_graph(build_filter_graph(segments, cfg, video=False), Path(out).stem,
+                   lambda graph_path: ["ffmpeg", "-y", "-i", str(src),
+                                       "-/filter_complex", str(graph_path),
+                                       "-map", "[outa]", "-c:a", "pcm_s16le", str(out)])
+    return Path(out)
+
+
+def run_with_graph(graph: str, name: str, command) -> None:
+    """Run the ffmpeg argv that command(graph_path) builds, with the graph in a file.
+
+    Raises RuntimeError with ffmpeg's last output on failure.
+    """
+    tmp = Path(tempfile.gettempdir()) / f"auto_editor_graph_{name}.txt"
     tmp.write_text(graph, encoding="utf-8")
 
     try:
-        cmd = build_ffmpeg_command(video, out, tmp, cfg)
         # Explicit, because Windows would decode as cp1252 and ffmpeg echoes the
         # filename: one undecodable byte fails a render that actually succeeded.
-        result = subprocess.run(cmd, capture_output=True, encoding="utf-8",
+        result = subprocess.run(command(tmp), capture_output=True, encoding="utf-8",
                                 errors="replace")
         if result.returncode != 0:
             raise RuntimeError(
@@ -100,5 +130,3 @@ def render_video(video: str | Path, out: str | Path, report: dict,
                 f"{result.stderr[-2000:]}")
     finally:
         tmp.unlink(missing_ok=True)
-
-    return Path(out)

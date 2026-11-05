@@ -16,5 +16,8 @@ venv/
 *.report.xml
 *.report.fcpxml
 
+# build ledgers
+.superpowers/
+
 # uploaded video and per-job working files
 web/work/

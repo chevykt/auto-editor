@@ -60,3 +60,10 @@ def test_fade_never_overlaps_segments_so_durations_are_preserved():
     assert "acrossfade" not in graph
     for seg in segs:
         assert f"atrim=start={seg.start:.6f}:end={seg.end:.6f}" in graph
+
+
+def test_audio_only_graph_has_no_video_chains():
+    graph = build_filter_graph([Span(0.0, 1.0), Span(2.0, 3.0)], EditorConfig(),
+                               video=False)
+    assert "[0:v]" not in graph
+    assert "concat=n=2:v=0:a=1[outa]" in graph
