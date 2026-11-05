@@ -47,10 +47,13 @@ def test_a_broken_plan_exits_2_and_says_where(tmp_path, capsys):
     assert "beat 1, step 1" in capsys.readouterr().err
 
 
-def test_script_writes_one_beat_per_paragraph(plan):
+def test_script_writes_the_reading_sheet_and_flags_broken_rules(plan, capsys):
     assert cli.main(["script", str(plan)]) == 0
     text = plan.with_name("create-project.script.txt").read_text(encoding="utf-8")
-    assert text == "Click New project.\n\nThen name it.\n"
+    assert text.startswith("t\n6 words, about 2 seconds\n")
+    assert text.endswith("Click New project.\n\nThen name it.\n")
+    err = capsys.readouterr().err
+    assert '"How to ..."' in err and "50 seconds" in err
 
 
 @pytest.fixture

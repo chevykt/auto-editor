@@ -123,3 +123,62 @@ def test_a_plan_needs_at_least_one_beat(tmp_path):
 def test_missing_start_url_is_rejected(tmp_path):
     with pytest.raises(PlanError, match="start_url"):
         load_plan(write(tmp_path, 'title = "t"\n' + beat("one")))
+
+
+# --- the reading sheet and Keon's script rules -------------------------------
+
+from tutorial.plan import Beat, Plan, format_problems, reading_sheet
+
+
+def sheet_plan(*says, needs=()):
+    return Plan("How to make a project", "https://x",
+                tuple(Beat(s, ()) for s in says), needs=tuple(needs))
+
+
+LONG = " ".join(["word"] * 140)
+
+
+def test_needs_is_an_optional_list(tmp_path):
+    plan = load_plan(write(tmp_path, HEADER + 'needs = ["A free account", "Node.js"]\n'
+                           + beat("one")))
+    assert plan.needs == ("A free account", "Node.js")
+    assert load_plan(write(tmp_path, HEADER + beat("one"))).needs == ()
+
+
+def test_reading_sheet_follows_the_terraria_batch_layout():
+    plan = sheet_plan("How to make a project. " + LONG,
+                      "And that's how you basically make a project.",
+                      needs=["A free account"])
+    lines = reading_sheet(plan).splitlines()
+    assert lines[0] == "How to make a project"
+    assert lines[1] == "153 words, about 58 seconds"
+    assert lines[3:5] == ["Needed equipment and requirements", "- A free account"]
+    assert lines[-3:] == [f"How to make a project. {LONG}", "",
+                          "And that's how you basically make a project."]
+
+
+def test_a_plan_without_needs_has_no_requirements_heading():
+    plan = sheet_plan("How to x. " + LONG, "And that's how you basically x.")
+    assert "Needed equipment" not in reading_sheet(plan)
+
+
+def test_a_plan_in_keons_format_has_no_problems():
+    plan = sheet_plan("How to make a project. " + LONG,
+                      "And that’s how you basically make a project.")
+    assert format_problems(plan) == []
+
+
+def test_the_opening_must_be_the_how_to_title():
+    plan = sheet_plan("Here is how to make a project. " + LONG,
+                      "And that's how you basically make a project.")
+    assert any("How to" in p for p in format_problems(plan))
+
+
+def test_the_closing_must_be_and_thats_how_you_basically():
+    plan = sheet_plan("How to make a project. " + LONG, "That is all.")
+    assert any("And that's how you basically" in p for p in format_problems(plan))
+
+
+def test_a_script_under_50_seconds_is_flagged():
+    plan = sheet_plan("How to make a project.", "And that's how you basically do it.")
+    assert any("50 seconds" in p for p in format_problems(plan))

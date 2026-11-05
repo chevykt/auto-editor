@@ -18,7 +18,7 @@ from report import write_markdown
 from tutorial.assemble import assemble, write_timeline
 from tutorial.capture import Capture
 from tutorial.fit import FitError, fit_all
-from tutorial.plan import Plan, PlanError, load_plan, script_text
+from tutorial.plan import Plan, PlanError, format_problems, load_plan, reading_sheet
 from tutorial.runner import (BlockedAction, SessionExpired, StepFailed, open_browser,
                              run_steps, start)
 from tutorial.voice import VoiceError, clean_voiceover
@@ -133,9 +133,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {plan_path.name}: {exc}", file=sys.stderr)
         return 2
 
+    if args.command in ("script", "check"):
+        for problem in format_problems(plan):
+            print(f"warning: {problem}", file=sys.stderr)
     if args.command == "script":
         target = plan_path.with_name(plan_path.stem + ".script.txt")
-        target.write_text(script_text(plan) + "\n", encoding="utf-8")
+        target.write_text(reading_sheet(plan), encoding="utf-8")
         print(f"read this: {target}")
         return 0
 

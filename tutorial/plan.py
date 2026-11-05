@@ -40,6 +40,7 @@ class Plan:
     demo_account: bool = False
     setup: tuple[Step, ...] = ()
     cleanup: tuple[Step, ...] = ()
+    needs: tuple[str, ...] = ()     # "Needed equipment and requirements"
 
 
 def _step(raw: dict, where: str) -> Step:
@@ -89,9 +90,47 @@ def load_plan(path: str | Path) -> Plan:
                 beats=tuple(beats), blur=tuple(data.get("blur", [])),
                 demo_account=bool(data.get("demo_account", False)),
                 setup=_steps(data.get("setup", []), "setup"),
-                cleanup=_steps(data.get("cleanup", []), "cleanup"))
+                cleanup=_steps(data.get("cleanup", []), "cleanup"),
+                needs=tuple(data.get("needs", [])))
 
 
 def script_text(plan: Plan) -> str:
     """The narration as the auto-editor reads scripts: one beat per paragraph."""
     return "\n\n".join(b.say for b in plan.beats)
+
+
+# Keon's own pace, from his Terraria batch: 151 words read in about 57 seconds.
+WORDS_PER_SECOND = 151 / 57
+MIN_SECONDS = 50
+OPENING = "how to"
+CLOSING = "and that's how you basically"
+
+
+def _words(plan: Plan) -> int:
+    return sum(len(b.say.split()) for b in plan.beats)
+
+
+def reading_sheet(plan: Plan) -> str:
+    """The script laid out like Keon's Terraria batch: title, length, needs, script."""
+    words = _words(plan)
+    parts = [plan.title, f"{words} words, about {round(words / WORDS_PER_SECOND)} seconds"]
+    if plan.needs:
+        parts.append("\nNeeded equipment and requirements\n"
+                     + "\n".join(f"- {need}" for need in plan.needs))
+    return "\n".join(parts) + "\n\n" + script_text(plan) + "\n"
+
+
+def format_problems(plan: Plan) -> list[str]:
+    """Where a script breaks Keon's rules for these videos."""
+    problems = []
+    if not plan.beats[0].say.lower().startswith(OPENING):
+        problems.append('the script must open with its title, "How to ..."')
+    closing = plan.beats[-1].say.lower().replace("’", "'")
+    if not closing.startswith(CLOSING):
+        problems.append("the last line must start \"And that's how you basically ...\"")
+    seconds = _words(plan) / WORDS_PER_SECOND
+    if seconds < MIN_SECONDS:
+        problems.append(f"about {round(seconds)} seconds to read; videos need at least "
+                        f"{MIN_SECONDS} seconds (roughly "
+                        f"{round(MIN_SECONDS * WORDS_PER_SECOND)} words)")
+    return problems

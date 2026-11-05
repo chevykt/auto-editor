@@ -1,41 +1,58 @@
 # Pilot: public Supabase docs, so it runs without signing in.
 title = "How to find the Supabase quickstart for Next.js"
 start_url = "https://supabase.com/docs"
+needs = [
+  "A web browser",
+  "A free Supabase account, to follow the guide afterwards",
+  "Node.js installed, for the create-next-app command",
+]
 
 [[beat]]
-say = "Here is how to find the official guide for using Supabase with Next.js."
+say = "How to find the Supabase quickstart for Next.js. Supabase keeps an official step by step guide for Next.js, and it is the fastest way to connect a brand new app to your database."
 steps = []
 
 [[beat]]
-say = "On the Supabase docs home page, find the Getting Started section and click Next.js."
+say = "Open the Supabase docs, find the Connect a framework section on the home page, and click Next.js."
 steps = [
   { click = "main a[href='/docs/guides/getting-started/quickstarts/nextjs']", at = "click Next.js" },
   { wait_for = "h1:has-text('Use Supabase with Next.js')" },
 ]
 
 [[beat]]
-say = "The guide walks you through eight steps, starting with creating a Supabase project."
+say = "The guide is split into eight numbered steps, and the On this page menu on the right lets you jump straight to any of them."
 steps = [
-  { hover = "h2:has-text('1. Create a Supabase project')", at = "creating a Supabase project" },
+  { hover = "a[href='#1-create-a-supabase-project']:has-text('1. Create')", at = "On this page" },
 ]
 
 [[beat]]
-say = "Scroll down to step three to create the Next.js app itself."
+say = "Step one creates your Supabase project, and step two sets up a sample table with some starter data."
+steps = [
+  { hover = "h2:has-text('1. Create a Supabase project')", at = "Step one" },
+]
+
+[[beat]]
+say = "Scroll down to step three to create the Next.js app itself with a single command."
 steps = [
   { scroll = "h2:has-text('3. Create a Next.js app')", at = "Scroll down" },
 ]
 
-[[beat]]
-say = "Every command has a copy button, so you can paste it straight into your terminal."
 # The copy button only appears while the mouse is over its block, so the
 # cursor goes to the command first, then to that block's own button.
+[[beat]]
+say = "Every command has a copy button, so you can paste it straight into your terminal."
 steps = [
   { hover = "main pre:has-text('create-next-app')", at = "Every command" },
   { hover = "xpath=//pre[contains(., 'create-next-app')]/ancestor::div[.//button[@aria-label='Copy code']][1]//button[@aria-label='Copy code']", at = "copy button" },
 ]
 
 [[beat]]
-say = "Follow the steps in order, and your app will be reading data from Supabase."
+say = "Step five shows where to find your project URL and API key, which go into your environment variables file."
 steps = [
-  { scroll = "h2:has-text('8. Start the app')", at = "reading data" },
+  { scroll = "h2:has-text('5. Declare Supabase environment variables')", at = "Step five" },
+]
+
+[[beat]]
+say = "And that's how you basically find and follow the Supabase quickstart for Next.js, from a new project to an app reading real data."
+steps = [
+  { scroll = "h2:has-text('8. Start the app')", at = "reading real data" },
 ]
