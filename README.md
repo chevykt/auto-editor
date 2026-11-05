@@ -331,6 +331,43 @@ so it is read from a file via `-/filter_complex`. Inlining it would fail only on
 long recordings — exactly the ones this tool exists for. Rendering needs ffmpeg
 7 or newer for that syntax; ffmpeg 9 removed the older `-filter_complex_script`.
 
+## Tutorial recorder (`py -3.14 -m tutorial`)
+
+For web-based tutorials: you record only the voiceover, and the tool performs
+the on-screen steps in Chrome, records them, and fits the picture to your voice.
+
+Each video has a `plan.toml`: the narration split into beats, and the browser
+steps for each beat (format in
+`docs/superpowers/specs/2026-11-06-web-tutorial-recorder-design.md`). Claude
+drafts plans by exploring the site; you review them.
+
+```bash
+py -3.14 -m tutorial login https://supabase.com/dashboard   # once per site: sign in by hand, close the window
+py -3.14 -m tutorial check tutorials/my-video.toml          # every step works? prints ok
+py -3.14 -m tutorial script tutorials/my-video.toml         # writes my-video.script.txt to read
+py -3.14 -m tutorial make tutorials/my-video.toml voice.wav # finished video
+```
+
+`make` writes `tutorial-out/<plan>/final.mp4` (1080p, 30 fps) and
+`final.fcpxml` (the video cut at beat boundaries, for Resolve), plus
+`voice.clean.wav` and `run.log`.
+
+- Fumble and retake freely while reading: the voiceover is cleaned with the same
+  engine as the rest of this tool. A read that doesn't match the script stops
+  the run and writes `<plan>.voice-report.md`.
+- A step with `at = "some words"` lands on those words as you say them. Spare
+  time is held before the action; page loads are cut before anything is sped
+  up, and nothing goes faster than 2x — past that, the run stops and names the
+  beat.
+- Sign-ins happen only by hand, in `login`. No password goes in a plan.
+- A click on a button reading "Confirm payment", "Place order", "Deposit",
+  "Buy", "Sell" and similar is refused, unless the plan sets
+  `demo_account = true` for a broker demo account.
+- `blur = ["css selector", ...]` blurs private details (emails, balances) for
+  the whole recording.
+- `setup` and `cleanup` step lists run off camera; `cleanup` runs even when the
+  recording fails, so whatever the tutorial creates doesn't pile up.
+
 ## Known limits
 
 - **A doubled short word is below this tool's floor.** Whisper collapses
