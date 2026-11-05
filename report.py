@@ -58,11 +58,11 @@ def build_report(lines: list[ScriptLine], matches: list[LineMatch],
     mode: "subtractive" or "reorder" - changes what the report can honestly
     say about unmatched content, which one mode keeps and the other discards.
     """
+    # Suspects are reported, not applied. They sit in "cuts" so the review
+    # screen can address them by index, but they must not shorten anything, or
+    # count as a cut, until someone approves them.
+    applied = [c for c in cuts if CutReason.SUSPECT not in c.reasons]
     if segments is None:
-        # Suspects are reported, not applied. They sit in "cuts" so the review
-        # screen can address them by index, but they must not shorten anything
-        # until someone approves them.
-        applied = [c for c in cuts if CutReason.SUSPECT not in c.reasons]
         segments = keep_segments(applied, duration)
 
     # Derived from the segments rather than summed from the cuts, so the number
@@ -80,7 +80,7 @@ def build_report(lines: list[ScriptLine], matches: list[LineMatch],
             "line_count": len(lines),
             "misses": sum(1 for m in matches if m.status.value == "miss"),
             "reviews": sum(1 for m in matches if m.status.value == "review"),
-            "cut_count": len(cuts),
+            "cut_count": len(applied),
             "cut_seconds": duration - output_seconds,
             "output_seconds": output_seconds,
         },
@@ -107,9 +107,23 @@ def build_report(lines: list[ScriptLine], matches: list[LineMatch],
             }
             for c in cuts
         ],
-        "adlibs": _adlib_spans(matches, cuts, words),
+        "adlibs": _adlib_spans(matches, applied, words),
         "segments": [{"start": s.start, "end": s.end} for s in segments],
     }
+
+
+def approved_segments(report: dict, keep_applied: set[int]) -> list[Span]:
+    """Surviving segments once a reviewer has toggled cuts off.
+
+    keep_applied holds indices into report["cuts"] that should STILL be
+    removed from the video. Anything not listed is put back.
+
+    Runs the survivors through the engine's own keep_segments, so an approved
+    cut list cannot drift from what a fresh analysis would have produced.
+    """
+    cuts = [CutSpan(cut["start"], cut["end"])
+            for i, cut in enumerate(report["cuts"]) if i in keep_applied]
+    return keep_segments(cuts, report["duration"])
 
 
 def write_json(report: dict, path: str | Path) -> Path:

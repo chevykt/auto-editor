@@ -15,10 +15,9 @@ from enum import Enum
 from pathlib import Path
 
 from config import EditorConfig
-from cutlist import keep_segments
 from edit import analyse
-from models import CutSpan, Span
 from render import render_video
+from report import approved_segments
 from transcribe import transcribe
 
 
@@ -87,20 +86,6 @@ class Job:
             "error": self.error,
             "has_output": self.output is not None and self.output.exists(),
         }
-
-
-def approved_segments(report: dict, keep_applied: set[int]) -> list[Span]:
-    """Surviving segments once the user has toggled cuts off.
-
-    keep_applied holds indices into report["cuts"] that should STILL be
-    removed from the video. Anything not listed is put back.
-
-    Runs the survivors through the engine's own keep_segments, so an approved
-    cut list cannot drift from what the CLI would have produced.
-    """
-    cuts = [CutSpan(cut["start"], cut["end"])
-            for i, cut in enumerate(report["cuts"]) if i in keep_applied]
-    return keep_segments(cuts, report["duration"])
 
 
 def run_analysis(job: Job, cfg: EditorConfig,
@@ -216,13 +201,13 @@ class Worker:
         self._queue.put(fn)
 
     def waiting(self) -> int:
-        """How many jobs are queued but not yet started.
+        """How many jobs are in the worker, the running one included.
 
         Transcription is serial, so a job can sit at "queued" for a long time
         through no fault of its own. Without this the UI just says "Queued"
         forever and there is no way to tell a busy queue from a wedged one.
         """
-        return self._queue.qsize()
+        return self._queue.unfinished_tasks
 
     def join(self) -> None:
         """Block until the queue drains. For tests."""

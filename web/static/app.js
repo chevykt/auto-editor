@@ -6,6 +6,7 @@ let file = null;
 let job = null;
 let report = null;
 let applied = new Set();
+let rendering = false;
 
 const ts = (s) => {
   const m = Math.floor(s / 60);
@@ -105,6 +106,7 @@ function upload(body, onProgress) {
 
 $("analyse").addEventListener("click", async () => {
   $("analyse").disabled = true;
+  rendering = false;
   hide("start-error");
 
   const body = new FormData();
@@ -140,6 +142,7 @@ const STAGE_TEXT = {
   probing: "Reading the file",
   transcribing: "Transcribing",
   analysing: "Matching your script",
+  ready: "Waiting to render",
   rendering: "Rendering",
 };
 
@@ -163,7 +166,9 @@ async function poll() {
     return;
   }
 
-  if (state.state === "ready") {
+  // A render stays "ready" until the worker picks it up. Treating that as a
+  // finished analysis redrew the review screen and stopped polling for good.
+  if (state.state === "ready" && !rendering) {
     report = state.report;
     // Suspects are reported, not applied. They arrive unchecked so a guess
     // about a hidden false start can never silently remove real speech.
@@ -195,7 +200,7 @@ async function poll() {
   const queuedBehind = state.state === "queued" && state.waiting > 1;
 
   $("stage").textContent =
-    queuedBehind ? `Queued — ${state.waiting - 1} job(s) ahead of this one`
+    queuedBehind ? `Queued — ${state.waiting - 1} other job(s) in the queue`
     : loadingModel ? "Loading the speech model…"
     : STAGE_TEXT[state.state] || state.state;
 
@@ -212,8 +217,14 @@ function activeCuts() {
   return report.cuts.filter((_, i) => applied.has(i));
 }
 
+// A ticked suspect can overlap a real cut, so overlaps are only counted once.
 function outputSeconds() {
-  const removed = activeCuts().reduce((sum, c) => sum + (c.end - c.start), 0);
+  let removed = 0;
+  let until = 0;
+  activeCuts().forEach((c) => {
+    removed += Math.max(0, c.end - Math.max(c.start, until));
+    until = Math.max(until, c.end);
+  });
   return report.duration - removed;
 }
 
@@ -243,8 +254,8 @@ function drawTimeline() {
 
   report.cuts.forEach((cut, i) => {
     push("kept", cut.start - at);
-    push(applied.has(i) ? reasonOf(cut) : "kept", cut.end - cut.start);
-    at = cut.end;
+    push(applied.has(i) ? reasonOf(cut) : "kept", cut.end - Math.max(cut.start, at));
+    at = Math.max(at, cut.end);
   });
   push("kept", report.duration - at);
 }
@@ -364,6 +375,7 @@ $("render").addEventListener("click", async () => {
     return;
   }
 
+  rendering = true;
   hide("review");
   $("stage").textContent = "Rendering";
   $("bar-fill").style.width = "100%";
@@ -371,19 +383,31 @@ $("render").addEventListener("click", async () => {
   poll();
 });
 
-$("xml").addEventListener("click", async () => {
-  const response = await fetch(`/api/jobs/${job}/xml`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cuts: [...applied] }),
-  });
-  const blob = await response.blob();
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "timeline.xml";
-  link.click();
-  URL.revokeObjectURL(link.href);
-});
+async function exportTimeline(route, suffix) {
+  hide("review-error");
+
+  try {
+    const response = await fetch(`/api/jobs/${job}/${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cuts: [...applied] }),
+    });
+    if (!response.ok) throw new Error((await response.json()).detail);
+
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = $("filename").textContent.replace(/\.[^.]+$/, "") + suffix;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (err) {
+    $("review-error").textContent =
+      err.message || "can't reach the server — is `python -m web` still running?";
+    show("review-error");
+  }
+}
+
+$("davinci").addEventListener("click", () => exportTimeline("fcpxml", ".fcpxml"));
+$("xml").addEventListener("click", () => exportTimeline("xml", ".xml"));
 
 $("again").addEventListener("click", () => location.reload());
 

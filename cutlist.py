@@ -58,12 +58,11 @@ def padding_for(reasons: set[CutReason], cfg: EditorConfig) -> tuple[float, floa
 
 def apply_padding(cuts: list[CutSpan], cfg: EditorConfig,
                   sources: list[CutSpan] | None = None) -> list[CutSpan]:
-    """Pull every cut boundary inward so the cut lands inside the gap.
+    """Move every cut boundary by the padding its reason calls for.
 
-    Pulling inward makes the removed span smaller, never larger, so a cut
-    cannot clip a breath or a plosive on either side. Spans too short to
-    absorb the padding collapse to nothing and are dropped rather than
-    inverting into a negative duration.
+    See padding_for for the direction. Spans too short to absorb the padding
+    collapse to nothing and are dropped rather than inverting into a negative
+    duration.
 
     Each boundary is padded by the reason that produced it, not by the merged
     span's combined reasons. A silence gap that merged with an adjacent

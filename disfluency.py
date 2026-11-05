@@ -4,6 +4,10 @@ Every detector here is deliberately conservative. Leaving a minor stutter in
 is a small cost; trimming an intentional ad-lib is a large one. All three
 require temporal adjacency, not merely shared vocabulary, which is what stops
 an ad-lib that reuses a nearby script word from being eaten.
+
+The script is the other guard. "the theory" and "and Android" have the exact
+shape of a fragment and its full word, so the shape alone cannot tell them from
+a stumble - but if the script says those words, the speaker was reading it.
 """
 from __future__ import annotations
 
@@ -26,8 +30,13 @@ def _next_speech(words: list[Word], i: int, hi: int) -> int:
     return i
 
 
+def _scripted(script: str, *tokens: str) -> bool:
+    """True when the normalized script says these tokens in a row."""
+    return f" {' '.join(tokens)} " in f" {script} "
+
+
 def detect_immediate_repeats(words: list[Word], lo: int, hi: int,
-                             cfg: EditorConfig) -> list[CutSpan]:
+                             cfg: EditorConfig, script: str = "") -> list[CutSpan]:
     """The same word twice in a row, optionally with fillers between.
 
     Cuts the earlier occurrence and any fillers, leaving the clean one.
@@ -44,7 +53,8 @@ def detect_immediate_repeats(words: list[Word], lo: int, hi: int,
         while j < hi and normalize(words[j].text) in FILLERS:
             j = _next_speech(words, j + 1, hi)
 
-        if j < hi and normalize(words[j].text) == first:
+        if j < hi and normalize(words[j].text) == first \
+                and not _scripted(script, first, first):
             if words[j].start - words[i].end <= cfg.repeat_max_gap_s:
                 cuts.append(CutSpan(
                     words[i].start, words[j].start, {CutReason.DISFLUENCY},
@@ -56,7 +66,7 @@ def detect_immediate_repeats(words: list[Word], lo: int, hi: int,
 
 
 def detect_truncated_restarts(words: list[Word], lo: int, hi: int,
-                              cfg: EditorConfig) -> list[CutSpan]:
+                              cfg: EditorConfig, script: str = "") -> list[CutSpan]:
     """A cut-off word fragment immediately followed by the full word.
 
     Requires the fragment to be a literal prefix of the next word, at least
@@ -80,6 +90,8 @@ def detect_truncated_restarts(words: list[Word], lo: int, hi: int,
             continue
         if words[j].start - words[i].end > cfg.restart_max_gap_s:
             continue
+        if _scripted(script, frag, full):
+            continue
 
         cuts.append(CutSpan(
             words[i].start, words[j].start, {CutReason.DISFLUENCY},
@@ -88,7 +100,7 @@ def detect_truncated_restarts(words: list[Word], lo: int, hi: int,
 
 
 def detect_duplicate_phrases(words: list[Word], lo: int, hi: int,
-                             cfg: EditorConfig) -> list[CutSpan]:
+                             cfg: EditorConfig, script: str = "") -> list[CutSpan]:
     """A short phrase repeated seconds apart, where the second run continues cleanly.
 
     Longer n-grams are preferred, so "click the blue button" repeated is cut as
@@ -106,7 +118,7 @@ def detect_duplicate_phrases(words: list[Word], lo: int, hi: int,
                 continue
 
             first = [normalize(w.text) for w in words[i:i + size]]
-            if any(not t for t in first):
+            if any(not t for t in first) or script.count(" ".join(first)) >= 2:
                 i += 1
                 continue
 
@@ -128,12 +140,16 @@ def detect_duplicate_phrases(words: list[Word], lo: int, hi: int,
     return sorted(cuts, key=lambda c: c.start)
 
 
-def detect_disfluencies(words: list[Word], lo: int, hi: int,
-                        cfg: EditorConfig) -> list[CutSpan]:
-    """Run every detector over words[lo:hi]. Honours cfg.clean_stutters."""
+def detect_disfluencies(words: list[Word], lo: int, hi: int, cfg: EditorConfig,
+                        script: str = "") -> list[CutSpan]:
+    """Run every detector over words[lo:hi]. Honours cfg.clean_stutters.
+
+    script: the line these words matched. What it says is never a stumble.
+    """
     if not cfg.clean_stutters:
         return []
-    cuts = (detect_immediate_repeats(words, lo, hi, cfg)
-            + detect_truncated_restarts(words, lo, hi, cfg)
-            + detect_duplicate_phrases(words, lo, hi, cfg))
+    script = normalize(script)
+    cuts = (detect_immediate_repeats(words, lo, hi, cfg, script)
+            + detect_truncated_restarts(words, lo, hi, cfg, script)
+            + detect_duplicate_phrases(words, lo, hi, cfg, script))
     return sorted(cuts, key=lambda c: c.start)

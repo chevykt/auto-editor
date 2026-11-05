@@ -82,8 +82,11 @@ judgment-call cuts, then render:
 python edit.py --script script.txt --video raw_recording.mp4 --out final.mp4 --auto
 ```
 
-If you disagree with a cut, delete it from the JSON report's `segments` list
-and render the approved version directly — no re-transcription:
+If you disagree with a cut, delete it from the JSON report's `cuts` list and
+render the approved version directly — no re-transcription. To approve a
+suspect, remove `"suspect"` from its `reasons`. `segments` is worked out from
+`cuts` at render time, so editing it has no effect (except in `--reorder`
+reports, whose segments are not derived from the cuts):
 
 ```bash
 python edit.py --video raw_recording.mp4 --from-report raw_recording.report.json --out final.mp4
@@ -216,6 +219,24 @@ written as timebase 30 with the NTSC flag set, which is what the format
 requires; writing `29.97` directly produces a sequence Premiere silently
 misreads.
 
+## DaVinci Resolve timeline export (`--export-fcpxml`)
+
+The same idea for Resolve, using FCPXML 1.9:
+
+```bash
+python edit.py --script script.txt --video raw.mp4 --export-fcpxml
+```
+
+Writes `raw.report.fcpxml`. In Resolve, use File → Import → Timeline and pick
+it. The web UI's **Export to DaVinci** button does the same with the cuts you
+have ticked. Every clip points at your whole recording, so dragging an edge
+brings back whatever was cut. Unticked suspects stay in; ticked ones are cut.
+
+The timeline links to the file by its absolute path. From the CLI that is your
+original recording. From the web UI it is the uploaded copy in `web/work/`, so
+keep that folder, or relink to your original in Resolve if it goes. A
+variable-frame-rate recording should be converted to a constant rate first.
+
 ## Reorder mode (`--reorder`)
 
 The opposite approach, and off by default. Instead of removing what it's
@@ -268,6 +289,7 @@ opposite fate.
 | `--language` | auto | Force a language instead of auto-detecting |
 | `--no-clean-stutters` | off | Turn disfluency detection off entirely |
 | `--export-xml` | off | Also write a Premiere-compatible XML timeline |
+| `--export-fcpxml` | off | Also write a DaVinci Resolve timeline |
 | `--reorder` | off | Rebuild in script order, discarding unmatched content |
 | `--reorder-pad-ms` | 60 | Outward breathing room on each reordered window |
 | `--split-sentences` | off | Split the script per sentence instead of per blank line |
@@ -305,8 +327,9 @@ tight value at the other.
 
 **The ffmpeg filter graph goes to a file.** A few hundred cuts produces a
 `filter_complex` string far past the Windows 8191-character command-line limit,
-so it is passed via `-filter_complex_script`. Inlining it would fail only on
-long recordings — exactly the ones this tool exists for.
+so it is read from a file via `-/filter_complex`. Inlining it would fail only on
+long recordings — exactly the ones this tool exists for. Rendering needs ffmpeg
+7 or newer for that syntax; ffmpeg 9 removed the older `-filter_complex_script`.
 
 ## Known limits
 
@@ -347,7 +370,7 @@ long recordings — exactly the ones this tool exists for.
 - A deliberate emphasis repeat ("no, no, don't click that") is not reliably
   distinguishable from an accidental stutter. The narrow window and the
   explicit disfluency-cut list in the report are the safety net. If one gets
-  cut wrongly, delete it from the JSON and use `--from-report`.
+  cut wrongly, delete it from the JSON's `cuts` and use `--from-report`.
 - Two script lines with near-identical wording are disambiguated by matching in
   script order against a forward-moving cursor. If a line is genuinely spoken
   out of order, it is found by a full-recording fallback and flagged

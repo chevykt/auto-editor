@@ -7,17 +7,18 @@ from pathlib import Path
 
 from aligner import align_script
 from batch import find_jobs, output_path
-from config import EditorConfig, load_config_file
+from config import EditorConfig, load_config_file, tunable_names
 from cutlist import build_cutlist
 from disfluency import detect_disfluencies
 from models import Span, Word
 from reorder import reorder_segments
-from report import build_report, load_report, write_json, write_markdown
+from report import (approved_segments, build_report, load_report, write_json,
+                    write_markdown)
 from script_parser import parse_script
 from suspects import find_suspects, suspect_cuts
 from silence import detect_silence
 from transcribe import transcribe
-from xml_export import probe_video_meta, write_xml
+from xml_export import probe_video_meta, write_fcpxml, write_xml
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,33 +91,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--export-xml", action="store_true",
                    help="Also write a Premiere-compatible XML timeline, so "
                         "cuts can be nudged by hand instead of trusted blindly")
+    p.add_argument("--export-fcpxml", action="store_true",
+                   help="Also write a DaVinci Resolve timeline (.fcpxml) with "
+                        "the whole recording behind every cut")
     return p
 
 
 def config_from_args(args: argparse.Namespace) -> EditorConfig:
-    return EditorConfig(
-        threshold=args.threshold,
-        review_margin=args.review_margin,
-        lookahead_s=args.lookahead_s,
-        tiebreak=args.tiebreak,
-        silence_ms=args.silence_ms,
-        padding_ms=args.padding_ms,
-        silence_padding_ms=args.silence_padding_ms,
-        min_segment_ms=args.min_segment_ms,
-        crossfade_ms=args.crossfade_ms,
-        duplicate_window_s=args.duplicate_window_s,
-        max_disfluency_words=args.max_disfluency_words,
-        clean_stutters=not args.no_clean_stutters,
-        model=args.model,
-        language=args.language,
-        use_cache=not args.no_cache,
-        device=args.device,
-        compute_type=args.compute_type,
-        verbatim=args.verbatim,
-        initial_prompt=args.initial_prompt,
-        reorder=args.reorder,
-        reorder_pad_ms=args.reorder_pad_ms,
-    )
+    # By name rather than a list of fields: a config file may set any knob,
+    # including ones with no flag, and a listed-out copy silently dropped those.
+    knobs = {name: getattr(args, name) for name in tunable_names()
+             if hasattr(args, name)}
+    return EditorConfig(**knobs,
+                        clean_stutters=not args.no_clean_stutters,
+                        use_cache=not args.no_cache)
 
 
 def validate_args(args: argparse.Namespace) -> str | None:
@@ -190,6 +178,7 @@ def analyse(words: list[Word], script_text: str, duration: float,
             split_sentences: bool = False) -> dict:
     """The whole of phase 1: transcript + script in, review report out."""
     lines = parse_script(script_text, split_sentences=split_sentences)
+    script_of = {line.index: line.text for line in lines}
 
     raw = detect_silence(words, cfg, duration=duration)
     matches, retake_cuts = align_script(words, lines, cfg)
@@ -199,7 +188,8 @@ def analyse(words: list[Word], script_text: str, duration: float,
     for m in matches:
         if m.word_range:
             disfluencies += detect_disfluencies(
-                words, m.word_range[0], m.word_range[1], cfg)
+                words, m.word_range[0], m.word_range[1], cfg,
+                script=script_of[m.line_idx])
 
     raw += disfluencies
 
@@ -247,6 +237,13 @@ def run_job(video: Path, script: Path | None, args: argparse.Namespace,
     """One recording, end to end. Shared by the single and batch paths."""
     if args.from_report:
         report = load_report(args.from_report)
+        # The cut list is what a reviewer edits; segments follow from it. Reorder
+        # segments do not, and approving a suspect means dropping that reason.
+        if report.get("mode") != "reorder":
+            applied = {i for i, c in enumerate(report["cuts"])
+                       if "suspect" not in c["reasons"]}
+            report["segments"] = [{"start": s.start, "end": s.end}
+                                  for s in approved_segments(report, applied)]
     else:
         script_text = script.read_text(encoding="utf-8")
 
@@ -269,11 +266,17 @@ def run_job(video: Path, script: Path | None, args: argparse.Namespace,
         print(f"  {s['misses']} missed lines, {s['reviews']} needing review",
               file=sys.stderr)
 
-    if args.export_xml:
+    if args.export_xml or args.export_fcpxml:
         _, _, xml_path = report_paths(video, report_stem)
         segments = [Span(s["start"], s["end"]) for s in report["segments"]]
-        write_xml(video, segments, probe_video_meta(video), xml_path)
-        print(f"  Timeline: {xml_path}", file=sys.stderr)
+        meta = probe_video_meta(video)
+        if args.export_xml:
+            write_xml(video, segments, meta, xml_path)
+            print(f"  Timeline: {xml_path}", file=sys.stderr)
+        if args.export_fcpxml:
+            fcpxml_path = xml_path.with_suffix(".fcpxml")
+            write_fcpxml(video, segments, meta, fcpxml_path)
+            print(f"  Timeline: {fcpxml_path}", file=sys.stderr)
 
     if not (args.auto or args.from_report):
         return

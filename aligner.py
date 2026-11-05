@@ -196,6 +196,39 @@ def find_abandoned_prefix(words: list[Word], lo: int, hi: int,
     return best
 
 
+def retake_cluster(words: list[Word], cands: list[Candidate],
+                   cfg: EditorConfig) -> list[Candidate]:
+    """Narrow candidates to ones close enough to be attempts at one delivery.
+
+    A retake happens seconds after the flub - "that was wrong, again" - not a
+    minute later. Two matches far apart are the speaker covering the same
+    ground twice, which is exactly what a tutorial does when it explains a
+    point and then demonstrates it.
+
+    Without this, a line matched at 101s and again at 174s was treated as a
+    retake and 29 seconds of demonstration was deleted. That is the tool's
+    central promise inverted: content the speaker meant to keep, removed
+    because it resembled the script.
+
+    Only the cluster holding the best candidate survives. The rest go
+    unmatched, which means they are kept and reported as ad-libs.
+    """
+    if len(cands) < 2:
+        return cands
+
+    clusters: list[list[Candidate]] = [[cands[0]]]
+    for cand in cands[1:]:
+        previous = clusters[-1][-1]
+        gap = words[cand.start_idx].start - words[previous.end_idx - 1].end
+        if gap <= cfg.retake_max_gap_s:
+            clusters[-1].append(cand)
+        else:
+            clusters.append([cand])
+
+    best = max(cands, key=lambda c: c.score)
+    return next(cluster for cluster in clusters if best in cluster)
+
+
 def align_script(words: list[Word], lines: list[ScriptLine],
                  cfg: EditorConfig) -> tuple[list[LineMatch], list[CutSpan]]:
     """Match every script line, in order, against the transcript.
@@ -227,6 +260,17 @@ def align_script(words: list[Word], lines: list[ScriptLine],
             find_candidates(words, cursor, region_end, line.text, cfg))
 
         if not cands:
+            # Still forward-only. A tutorial demonstrates between script lines,
+            # so 30-50s of unscripted talk before the next line is normal and
+            # routinely overruns the lookahead. Widening to the end of the
+            # recording handles that without allowing a match BEFORE the cursor,
+            # which would overlap the previous line and steal its audio.
+            cands = suppress_overlaps(
+                find_candidates(words, cursor, len(words), line.text, cfg))
+
+        if not cands:
+            # Only now search backwards, for a line genuinely spoken out of
+            # order. Flagged in the report, because it usually is not.
             scoped = False
             cands = suppress_overlaps(
                 find_candidates(words, 0, len(words), line.text, cfg))
@@ -238,12 +282,17 @@ def align_script(words: list[Word], lines: list[ScriptLine],
 
         cands = _drop_candidates_owed_to_later_lines(
             words, cands, line, lines[pos + 1:], cfg)
+        cands = retake_cluster(words, cands, cfg)
 
         winner, losers = resolve_retakes(cands, cfg)
 
         for loser in losers:
-            end = words[winner.start_idx].start if loser.start_idx < winner.start_idx \
-                else words[loser.end_idx - 1].end
+            end = words[loser.end_idx - 1].end
+            # Up to the retake only across a short pause. A longer one may hold
+            # talk worth keeping; silence detection still clears any dead air.
+            if loser.start_idx < winner.start_idx and \
+                    words[winner.start_idx].start - end <= cfg.partial_retake_max_gap_s:
+                end = words[winner.start_idx].start
             cuts.append(CutSpan(
                 words[loser.start_idx].start, end, {CutReason.RETAKE_LOSER},
                 f"losing take of line {line.index} (score {loser.score:.2f})"))

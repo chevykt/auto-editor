@@ -207,7 +207,7 @@ def _run_whisper(video: Path, cfg: EditorConfig,
 def transcribe(video: str | Path, cfg: EditorConfig,
                on_progress: ProgressFn | None = None
                ) -> tuple[list[Word], float]:
-    """Word-level transcript plus media duration, cached beside the video.
+    """Word-level transcript plus media duration, cached by file content.
 
     on_progress receives a fraction from 0.0 to 1.0 as transcription advances.
     A cache hit reports 1.0 once and loads no model.

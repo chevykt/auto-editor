@@ -14,6 +14,7 @@ venv/
 *.report.json
 *.report.md
 *.report.xml
+*.report.fcpxml
 
 # uploaded video and per-job working files
 web/work/

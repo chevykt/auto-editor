@@ -4,11 +4,11 @@ from config import EditorConfig
 from render import build_ffmpeg_command, render_video
 
 
-def test_command_uses_filter_complex_script_not_inline():
+def test_command_reads_the_filter_graph_from_a_file_not_inline():
     cmd = build_ffmpeg_command("in.mp4", "out.mp4", "graph.txt", EditorConfig())
-    assert "-filter_complex_script" in cmd
+    assert "-/filter_complex" in cmd
     assert "-filter_complex" not in cmd
-    assert cmd[cmd.index("-filter_complex_script") + 1] == "graph.txt"
+    assert cmd[cmd.index("-/filter_complex") + 1] == "graph.txt"
 
 
 def test_command_maps_the_concat_outputs():
@@ -39,7 +39,7 @@ def test_render_writes_the_graph_to_a_file(tmp_path, monkeypatch):
     seen = {}
 
     def fake_run(cmd, **kwargs):
-        graph_path = cmd[cmd.index("-filter_complex_script") + 1]
+        graph_path = cmd[cmd.index("-/filter_complex") + 1]
         seen["graph"] = open(graph_path, encoding="utf-8").read()
 
         class R:
@@ -61,7 +61,7 @@ def test_graph_file_is_cleaned_up_even_when_ffmpeg_fails(tmp_path, monkeypatch):
     seen = {}
 
     def fake_run(cmd, **kwargs):
-        seen["path"] = cmd[cmd.index("-filter_complex_script") + 1]
+        seen["path"] = cmd[cmd.index("-/filter_complex") + 1]
 
         class R:
             returncode = 1
@@ -88,12 +88,12 @@ def test_missing_ffmpeg_raises_a_clear_error(tmp_path, monkeypatch):
 
 
 def test_graph_for_many_cuts_exceeds_the_windows_arg_limit(tmp_path, monkeypatch):
-    """Proves -filter_complex_script is load-bearing, not stylistic."""
+    """Proves -/filter_complex is load-bearing, not stylistic."""
     seen = {}
 
     def fake_run(cmd, **kwargs):
         seen["graph"] = open(
-            cmd[cmd.index("-filter_complex_script") + 1], encoding="utf-8").read()
+            cmd[cmd.index("-/filter_complex") + 1], encoding="utf-8").read()
 
         class R:
             returncode = 0

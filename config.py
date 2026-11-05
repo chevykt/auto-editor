@@ -21,6 +21,11 @@ class EditorConfig:
     window_tolerance: float = 0.4   # window sizes searched: wc*(1±tolerance)
     tiebreak: str = "latest"        # "latest" | "score"
     retake_lookahead_lines: int = 5  # how far ahead to check for a rival claim
+    # A retake follows the flub within seconds. Two matches further apart
+    # than this are the speaker covering the same ground twice - normal in a
+    # tutorial - not a discarded take. Treating them as retakes deleted 29s
+    # of demonstration on a real recording.
+    retake_max_gap_s: float = 12.0
 
     # Mid-line restarts: an abandoned attempt that matches the START of a line
     partial_retakes: bool = True

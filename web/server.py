@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
@@ -12,7 +13,7 @@ from config import EditorConfig
 from render import render_video
 from web.jobs import (JobState, JobStore, Worker, approved_segments,
                       run_analysis, run_render)
-from xml_export import build_xml, probe_video_meta
+from xml_export import build_fcpxml, build_xml, probe_video_meta
 
 STATIC = Path(__file__).resolve().parent / "static"
 WORK = Path(__file__).resolve().parent / "work"
@@ -126,12 +127,11 @@ def delete_job(job_id: str) -> dict:
     return {"deleted": job_id}
 
 
-@app.post("/api/jobs/{job_id}/xml")
-def export_xml(job_id: str, request: RenderRequest) -> Response:
-    """A Premiere timeline for the cut list as currently approved."""
+def _timeline(job_id: str, request: RenderRequest, build, suffix: str) -> Response:
+    """A timeline file for the cut list as currently approved."""
     job = _job_or_404(job_id)
     # Allowed from done as well as ready. Exporting a timeline is read-only,
-    # and "I rendered it, but now I want to nudge the cuts in Premiere" is a
+    # and "I rendered it, but now I want to nudge the cuts by hand" is a
     # reasonable thing to want after the fact.
     if job.state not in (JobState.READY, JobState.DONE):
         raise HTTPException(
@@ -139,11 +139,29 @@ def export_xml(job_id: str, request: RenderRequest) -> Response:
             detail=f"job is {job.state.value}, not analysed yet")
 
     segments = approved_segments(job.report, set(request.cuts))
-    xml = build_xml(job.video, segments, probe_video_meta(job.video))
+    try:
+        timeline = build(job.video, segments, probe_video_meta(job.video))
+    except ValueError as exc:                         # every segment was cut
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Headers are latin-1 and a recording's name need not be, so it goes in
+    # percent-encoded rather than raw.
+    name = quote(f"{job.video.stem}{suffix}")
     return Response(
-        content=xml, media_type="application/xml",
-        headers={"Content-Disposition":
-                 f'attachment; filename="{job.video.stem}.xml"'})
+        content=timeline, media_type="application/xml",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{name}"})
+
+
+@app.post("/api/jobs/{job_id}/xml")
+def export_xml(job_id: str, request: RenderRequest) -> Response:
+    """A Premiere timeline."""
+    return _timeline(job_id, request, build_xml, ".xml")
+
+
+@app.post("/api/jobs/{job_id}/fcpxml")
+def export_fcpxml(job_id: str, request: RenderRequest) -> Response:
+    """A DaVinci Resolve timeline."""
+    return _timeline(job_id, request, build_fcpxml, ".fcpxml")
 
 
 class RevalidatingStatic(StaticFiles):

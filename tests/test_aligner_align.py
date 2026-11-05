@@ -71,3 +71,56 @@ def test_matched_text_is_populated():
     ws = words("click the blue button")
     matches, _ = align_script(ws, lines("click the blue button"), EditorConfig())
     assert matches[0].matched_text == "click the blue button"
+
+
+def test_a_distant_second_match_is_not_a_retake():
+    """The bug that deleted 29 seconds of a real tutorial.
+
+    A line matched at 101s and again at 174s. Both cleared the threshold, so
+    the later one was called a losing retake and cut - but it was the speaker
+    covering the same point again while demonstrating, which is what a tutorial
+    does. A retake follows the flub within seconds, not a minute.
+    """
+    ws = words("click the blue button " + "filler " * 40 + "click the blue button",
+               dur=0.3)
+    matches, cuts = align_script(ws, lines("click the blue button"),
+                                 EditorConfig(retake_max_gap_s=5.0))
+
+    assert [c for c in cuts if CutReason.RETAKE_LOSER in c.reasons] == [], \
+        "a match a minute later is not a discarded take"
+    assert matches[0].status is not MatchStatus.MISS
+
+
+def test_an_adjacent_second_match_is_still_a_retake():
+    """The genuine case must survive the distance guard."""
+    ws = words("click the red button click the blue button")
+    _, cuts = align_script(ws, lines("click the blue button"),
+                           EditorConfig(retake_max_gap_s=5.0))
+    assert [c for c in cuts if CutReason.RETAKE_LOSER in c.reasons]
+
+
+def test_a_line_beyond_the_lookahead_is_found_without_searching_backwards():
+    """A tutorial demonstrates between script lines, routinely overrunning the
+    lookahead. Falling straight to a whole-recording search let a line match
+    BEFORE the cursor and overlap the previous line, stealing its audio.
+    """
+    ws = words("open the settings panel " + "demo " * 60 + "click the blue button",
+               dur=0.3)
+    cfg = EditorConfig(lookahead_s=2.0)     # far too small on purpose
+    matches, _ = align_script(ws, lines("open the settings panel",
+                                        "click the blue button"), cfg)
+
+    assert matches[0].word_range == (0, 4)
+    assert matches[1].word_range[0] > matches[0].word_range[1], "no overlap"
+    assert matches[1].scoped is True, "found going forward, not by searching back"
+
+
+def test_matches_never_overlap_each_other():
+    ws = words("open the settings panel " + "demo " * 30 + "click the blue button",
+               dur=0.3)
+    matches, _ = align_script(ws, lines("open the settings panel",
+                                        "click the blue button"),
+                              EditorConfig(lookahead_s=1.0))
+    spans = [m.word_range for m in matches if m.word_range]
+    for earlier, later in zip(spans, spans[1:]):
+        assert later[0] >= earlier[1], f"{earlier} overlaps {later}"

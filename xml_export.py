@@ -1,9 +1,11 @@
-"""Premiere-compatible XML timeline export (FCP7 xmeml).
+"""Timeline exports: Premiere (FCP7 xmeml) and DaVinci Resolve (FCPXML 1.9).
 
 Useful while alignment and disfluency detection are still being tuned: rather
 than trusting the auto-cut, you get a sequence whose cuts can be nudged by hand.
+Both reference the whole source file, so dragging a cut's edge reveals what was
+removed.
 
-Two things make this format easy to get wrong:
+Two things make xmeml easy to get wrong:
 
 1. Everything is in FRAMES, not seconds. A timeline built from rounded
    per-clip durations drifts against the source unless each clip's length is
@@ -17,6 +19,7 @@ from __future__ import annotations
 import subprocess
 import shutil
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -189,10 +192,73 @@ def build_xml(video: str | Path, segments: list[Span], meta: VideoMeta,
             "<!DOCTYPE xmeml>\n" + body + "\n")
 
 
+def build_fcpxml(video: str | Path, segments: list[Span], meta: VideoMeta,
+                 sequence_name: str = "Auto-Editor Cut") -> str:
+    """An FCPXML sequence for DaVinci Resolve: one asset-clip per segment.
+
+    The structure is the one video-format-lab's timeline export already
+    imported into Resolve cleanly: FCPXML 1.9, asset-clips on the spine, and
+    the media path as a plain file URI.
+
+    FCPXML times are rational seconds, so one frame is written exactly -
+    1001/30000s at 29.97. A decimal would land between frames.
+
+    shortcut: assumes a constant frame rate, as OBS records; a variable-rate
+    recording should be converted first, since Resolve drifts on those anyway.
+    """
+    video = Path(video)
+    timebase, ntsc = timebase_and_ntsc(meta.fps)
+    frame = Fraction(1001, timebase * 1000) if ntsc else Fraction(1, timebase)
+    rate = 1 / frame
+    clips = build_clips(segments, float(rate))
+    if not clips:
+        raise ValueError("cannot export FCPXML: no surviving segments")
+
+    def time(frames: int) -> str:
+        value = frames * frame
+        return f"{value.numerator}/{value.denominator}s"
+
+    root = ET.Element("fcpxml", version="1.9")
+    resources = ET.SubElement(root, "resources")
+    ET.SubElement(resources, "format", id="r1", frameDuration=time(1),
+                  width=str(meta.width), height=str(meta.height))
+    asset = ET.SubElement(resources, "asset", id="r2", name=video.name,
+                          start="0s",
+                          duration=time(int(round(meta.duration * rate))),
+                          hasVideo="1", hasAudio="1", format="r1")
+    ET.SubElement(asset, "media-rep", kind="original-media",
+                  src=video.resolve().as_uri())
+
+    library = ET.SubElement(root, "library")
+    event = ET.SubElement(library, "event", name=sequence_name)
+    project = ET.SubElement(event, "project", name=sequence_name)
+    sequence = ET.SubElement(project, "sequence", format="r1",
+                             duration=time(clips[-1][1]), tcStart="0s",
+                             tcFormat="NDF", audioLayout="stereo", audioRate="48k")
+    spine = ET.SubElement(sequence, "spine")
+    for tl_in, tl_out, src_in, _ in clips:
+        ET.SubElement(spine, "asset-clip", ref="r2", name=video.stem,
+                      offset=time(tl_in), start=time(src_in),
+                      duration=time(tl_out - tl_in))
+
+    ET.indent(root, space="  ")
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n'
+            + ET.tostring(root, encoding="unicode") + "\n")
+
+
 def write_xml(video: str | Path, segments: list[Span], meta: VideoMeta,
               path: str | Path, sequence_name: str = "Auto-Editor Cut") -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(build_xml(video, segments, meta, sequence_name),
+                    encoding="utf-8")
+    return path
+
+
+def write_fcpxml(video: str | Path, segments: list[Span], meta: VideoMeta,
+                 path: str | Path, sequence_name: str = "Auto-Editor Cut") -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(build_fcpxml(video, segments, meta, sequence_name),
                     encoding="utf-8")
     return path

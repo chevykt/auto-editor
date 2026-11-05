@@ -147,7 +147,7 @@ def test_from_report_renders_a_hand_edited_cut_list(project, tmp_path):
     # a human disagrees with the cuts and keeps only the first 5 seconds
     report_path = tmp_path / "raw.report.json"
     rep = load_report(report_path)
-    rep["segments"] = [{"start": 0.0, "end": 5.0}]
+    rep["cuts"] = [{"start": 5.0, "end": rep["duration"], "reasons": ["silence"]}]
     report_path.write_text(json.dumps(rep, indent=2), encoding="utf-8")
 
     out = tmp_path / "approved.mp4"

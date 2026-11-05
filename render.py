@@ -52,14 +52,16 @@ def build_ffmpeg_command(video: str | Path, out: str | Path,
                          cfg: EditorConfig) -> list[str]:
     """Assemble the ffmpeg argv.
 
-    The graph goes in via -filter_complex_script rather than inline: a few
-    hundred cuts produces a filter string far past the Windows 8191-character
-    command-line limit, which would fail only on long recordings.
+    The graph goes in from a file rather than inline: a few hundred cuts
+    produces a filter string far past the Windows 8191-character command-line
+    limit, which would fail only on long recordings. The "-/" prefix means "read
+    this option's value from a file"; it replaced -filter_complex_script, which
+    ffmpeg 9 removed.
     """
     return [
         "ffmpeg", "-y",
         "-i", str(video),
-        "-filter_complex_script", str(graph_path),
+        "-/filter_complex", str(graph_path),
         "-map", "[outv]", "-map", "[outa]",
         "-c:v", cfg.video_codec,
         "-preset", cfg.video_preset,
@@ -88,7 +90,10 @@ def render_video(video: str | Path, out: str | Path, report: dict,
 
     try:
         cmd = build_ffmpeg_command(video, out, tmp, cfg)
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Explicit, because Windows would decode as cp1252 and ffmpeg echoes the
+        # filename: one undecodable byte fails a render that actually succeeded.
+        result = subprocess.run(cmd, capture_output=True, encoding="utf-8",
+                                errors="replace")
         if result.returncode != 0:
             raise RuntimeError(
                 f"ffmpeg failed (exit {result.returncode}):\n"
